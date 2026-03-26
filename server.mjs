@@ -17,16 +17,16 @@ const handle = app.getRequestHandler();
 
 const port = process.env.PORT || 3000;
 
-// Ensure uploads directory exists
-const uploadsDir = path.join(process.cwd(), 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
 // Ensure db directory exists
 const dbDir = path.join(process.cwd(), 'data');
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
+}
+
+// Ensure uploads directory exists inside the persistent data volume
+const uploadsDir = path.join(dbDir, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
 const db = createClient({ url: `file:${path.join(dbDir, 'local.db')}` });

@@ -33,6 +33,7 @@ export default function Dashboard() {
   const [streamKey, setStreamKey] = useState("");
   const [scheduledFor, setScheduledFor] = useState("");
   const [scheduling, setScheduling] = useState(false);
+  const [selectedSavedKey, setSelectedSavedKey] = useState("");
 
   // Saved Keys state
   const [savedKeys, setSavedKeys] = useState<any[]>([]);
@@ -207,6 +208,7 @@ export default function Dashboard() {
         setSelectedVideo("");
         setStreamKey("");
         setScheduledFor("");
+        setSelectedSavedKey("");
         fetchStreams();
       } else {
         toast.error("Scheduling failed");
@@ -277,7 +279,8 @@ export default function Dashboard() {
               <form onSubmit={handleSchedule} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2 md:col-span-2">
                   <Label>Use Saved Stream Key (Optional)</Label>
-                  <Select onValueChange={(val) => {
+                  <Select value={selectedSavedKey || undefined} onValueChange={(val) => {
+                    setSelectedSavedKey(val || "");
                     if (val) {
                       const key = savedKeys.find(k => k.id.toString() === val);
                       if (key) {
@@ -298,7 +301,7 @@ export default function Dashboard() {
                 </div>
                 <div className="space-y-2">
                   <Label>Select Video</Label>
-                  <Select value={selectedVideo} onValueChange={(val) => setSelectedVideo(val || "")}>
+                  <Select value={selectedVideo || undefined} onValueChange={(val) => setSelectedVideo(val || "")}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select a video" />
                     </SelectTrigger>
