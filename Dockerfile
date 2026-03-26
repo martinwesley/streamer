@@ -21,5 +21,5 @@ RUN npm run build
 ENV PORT=7575
 EXPOSE 7575
 
-# Start the custom server
-CMD ["npm", "start"]
+# Start the custom server #start
+CMD ["npm", ".next/standalone/server.js"] 
