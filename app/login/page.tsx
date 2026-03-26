@@ -35,7 +35,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+    <div className="flex items-center justify-center min-h-screen bg-background text-foreground">
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>Login</CardTitle>
@@ -66,9 +66,6 @@ export default function LoginPage() {
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
             <Button type="submit" className="w-full">Login</Button>
-            <div className="text-sm text-center text-gray-500">
-              Don&apos;t have an account? <Link href="/register" className="text-blue-500 hover:underline">Register</Link>
-            </div>
           </CardFooter>
         </form>
       </Card>

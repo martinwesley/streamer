@@ -64,6 +64,29 @@ async function initDb() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS saved_keys (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      name TEXT,
+      rtmp_url TEXT,
+      stream_key TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  const hash = await bcrypt.hash('prophet123', 10);
+  try {
+    await db.execute({
+      sql: 'INSERT INTO users (id, username, password_hash) VALUES (1, ?, ?)',
+      args: ['martin', hash]
+    });
+  } catch (e) {
+    await db.execute({
+      sql: 'UPDATE users SET password_hash = ? WHERE username = ?',
+      args: [hash, 'martin']
+    });
+  }
 }
 
 // Multer setup for video uploads
@@ -113,24 +136,13 @@ app.prepare().then(async () => {
 
   // --- API Routes ---
 
-  server.post('/api/auth/register', async (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Missing fields' });
-
-    try {
-      const hash = await bcrypt.hash(password, 10);
-      const result = await db.execute({
-        sql: 'INSERT INTO users (username, password_hash) VALUES (?, ?)',
-        args: [username, hash]
-      });
-      res.json({ success: true, userId: Number(result.lastInsertRowid) });
-    } catch (err) {
-      res.status(400).json({ error: 'Username might already exist' });
-    }
-  });
-
   server.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
+    
+    if (username !== 'martin') {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
     const result = await db.execute({
       sql: 'SELECT * FROM users WHERE username = ?',
       args: [username]
@@ -157,6 +169,40 @@ app.prepare().then(async () => {
 
   server.get('/api/auth/me', authenticateToken, (req, res) => {
     res.json({ user: req.user });
+  });
+
+  server.get('/api/saved-keys', authenticateToken, async (req, res) => {
+    const result = await db.execute({
+      sql: 'SELECT * FROM saved_keys WHERE user_id = ? ORDER BY created_at DESC',
+      args: [req.user.id]
+    });
+    res.json({ keys: result.rows });
+  });
+
+  server.post('/api/saved-keys', authenticateToken, async (req, res) => {
+    const { name, rtmp_url, stream_key } = req.body;
+    if (!name || !rtmp_url || !stream_key) return res.status(400).json({ error: 'Missing fields' });
+    try {
+      const result = await db.execute({
+        sql: 'INSERT INTO saved_keys (user_id, name, rtmp_url, stream_key) VALUES (?, ?, ?, ?)',
+        args: [req.user.id, name, rtmp_url, stream_key]
+      });
+      res.json({ success: true, id: Number(result.lastInsertRowid) });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to save key' });
+    }
+  });
+
+  server.delete('/api/saved-keys/:id', authenticateToken, async (req, res) => {
+    try {
+      await db.execute({
+        sql: 'DELETE FROM saved_keys WHERE id = ? AND user_id = ?',
+        args: [req.params.id, req.user.id]
+      });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to delete key' });
+    }
   });
 
   server.post('/api/videos/upload', authenticateToken, upload.single('video'), async (req, res) => {

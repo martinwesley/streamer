@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Folder } from "lucide-react";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -33,6 +34,13 @@ export default function Dashboard() {
   const [scheduledFor, setScheduledFor] = useState("");
   const [scheduling, setScheduling] = useState(false);
 
+  // Saved Keys state
+  const [savedKeys, setSavedKeys] = useState<any[]>([]);
+  const [newKeyName, setNewKeyName] = useState("");
+  const [newKeyRtmp, setNewKeyRtmp] = useState("rtmp://a.rtmp.youtube.com/live2");
+  const [newKeyStream, setNewKeyStream] = useState("");
+  const [savingKey, setSavingKey] = useState(false);
+
   useEffect(() => {
     fetchUser();
   }, []);
@@ -45,6 +53,7 @@ export default function Dashboard() {
         setUser(data.user);
         fetchVideos();
         fetchStreams();
+        fetchSavedKeys();
       } else {
         router.push("/login");
       }
@@ -71,6 +80,55 @@ export default function Dashboard() {
     if (res.ok) {
       const data = await res.json();
       setStreams(data.streams);
+    }
+  };
+
+  const fetchSavedKeys = async () => {
+    const res = await fetch("/api/saved-keys");
+    if (res.ok) {
+      const data = await res.json();
+      setSavedKeys(data.keys);
+    }
+  };
+
+  const handleSaveKey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newKeyName || !newKeyRtmp || !newKeyStream) return toast.error("Please fill all fields");
+    
+    setSavingKey(true);
+    try {
+      const res = await fetch("/api/saved-keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newKeyName, rtmp_url: newKeyRtmp, stream_key: newKeyStream }),
+      });
+      if (res.ok) {
+        toast.success("Stream key saved");
+        setNewKeyName("");
+        setNewKeyStream("");
+        fetchSavedKeys();
+      } else {
+        toast.error("Failed to save key");
+      }
+    } catch (err) {
+      toast.error("Error saving key");
+    } finally {
+      setSavingKey(false);
+    }
+  };
+
+  const handleDeleteKey = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this key?")) return;
+    try {
+      const res = await fetch(`/api/saved-keys/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success("Key deleted");
+        fetchSavedKeys();
+      } else {
+        toast.error("Failed to delete key");
+      }
+    } catch (err) {
+      toast.error("Error deleting key");
     }
   };
 
@@ -198,7 +256,7 @@ export default function Dashboard() {
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">StreamScheduler</h1>
         <div className="flex items-center gap-4">
-          <span className="text-gray-600">Welcome, {user.username}</span>
+          <span className="text-muted-foreground">Welcome, {user.username}</span>
           <Button variant="outline" onClick={handleLogout}>Logout</Button>
         </div>
       </div>
@@ -207,6 +265,7 @@ export default function Dashboard() {
         <TabsList>
           <TabsTrigger value="streams">Scheduled Streams</TabsTrigger>
           <TabsTrigger value="videos">My Videos</TabsTrigger>
+          <TabsTrigger value="keys">Stream Keys</TabsTrigger>
         </TabsList>
 
         <TabsContent value="streams" className="space-y-6">
@@ -216,6 +275,27 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSchedule} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Use Saved Stream Key (Optional)</Label>
+                  <Select onValueChange={(val) => {
+                    if (val) {
+                      const key = savedKeys.find(k => k.id.toString() === val);
+                      if (key) {
+                        setRtmpUrl(key.rtmp_url);
+                        setStreamKey(key.stream_key);
+                      }
+                    }
+                  }}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a saved key to auto-fill" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {savedKeys.map(k => (
+                        <SelectItem key={k.id} value={k.id.toString()}>{k.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="space-y-2">
                   <Label>Select Video</Label>
                   <Select value={selectedVideo} onValueChange={(val) => setSelectedVideo(val || "")}>
@@ -284,7 +364,7 @@ export default function Dashboard() {
                 <TableBody>
                   {streams.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center text-gray-500">No streams scheduled</TableCell>
+                      <TableCell colSpan={5} className="text-center text-muted-foreground">No streams scheduled</TableCell>
                     </TableRow>
                   ) : (
                     streams.map(s => (
@@ -301,7 +381,7 @@ export default function Dashboard() {
                             {s.status.toUpperCase()}
                           </span>
                         </TableCell>
-                        <TableCell>{new Date(s.created_at + 'Z').toLocaleString()}</TableCell>
+                        <TableCell>{new Date(s.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
                         <TableCell>
                           <Button variant="destructive" size="sm" onClick={() => handleDeleteStream(s.id)}>Delete</Button>
                         </TableCell>
@@ -324,12 +404,23 @@ export default function Dashboard() {
                 <form onSubmit={handleUpload} className="space-y-4">
                   <div className="space-y-2">
                     <Label>Select File</Label>
-                    <Input 
-                      type="file" 
-                      accept="video/*" 
-                      onChange={e => setFile(e.target.files?.[0] || null)} 
-                      required 
-                    />
+                    <div 
+                      className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 hover:bg-gray-50 transition-colors cursor-pointer" 
+                      onClick={() => document.getElementById('file-upload')?.click()}
+                    >
+                      <Folder className="w-12 h-12 text-gray-400 mb-2" />
+                      <span className="text-sm text-muted-foreground text-center">
+                        {file ? file.name : "Click to select a video file"}
+                      </span>
+                      <Input 
+                        id="file-upload"
+                        type="file" 
+                        accept="video/*" 
+                        onChange={e => setFile(e.target.files?.[0] || null)} 
+                        className="hidden"
+                        required 
+                      />
+                    </div>
                   </div>
                   <Button type="submit" disabled={uploading || !file} className="w-full">
                     {uploading ? "Uploading..." : "Upload Video"}
@@ -353,7 +444,7 @@ export default function Dashboard() {
                       placeholder="https://..." 
                       required 
                     />
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-muted-foreground">
                       For Google Drive, use a direct download link format.
                     </p>
                   </div>
@@ -382,16 +473,97 @@ export default function Dashboard() {
                 <TableBody>
                   {videos.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-gray-500">No videos uploaded</TableCell>
+                      <TableCell colSpan={4} className="text-center text-muted-foreground">No videos uploaded</TableCell>
                     </TableRow>
                   ) : (
                     videos.map(v => (
                       <TableRow key={v.id}>
                         <TableCell className="font-medium">{v.original_name}</TableCell>
                         <TableCell>{(v.size / (1024 * 1024)).toFixed(2)} MB</TableCell>
-                        <TableCell>{new Date(v.created_at + 'Z').toLocaleString()}</TableCell>
+                        <TableCell>{new Date(v.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
                         <TableCell>
                           <Button variant="destructive" size="sm" onClick={() => handleDeleteVideo(v.id)}>Delete</Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="keys" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Save New Stream Key</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSaveKey} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Name (e.g. YouTube Main)</Label>
+                  <Input 
+                    value={newKeyName} 
+                    onChange={e => setNewKeyName(e.target.value)} 
+                    placeholder="My Channel" 
+                    required 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>RTMP URL</Label>
+                  <Input 
+                    value={newKeyRtmp} 
+                    onChange={e => setNewKeyRtmp(e.target.value)} 
+                    placeholder="rtmp://a.rtmp.youtube.com/live2" 
+                    required 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Stream Key</Label>
+                  <Input 
+                    type="password"
+                    value={newKeyStream} 
+                    onChange={e => setNewKeyStream(e.target.value)} 
+                    placeholder="xxxx-xxxx-xxxx-xxxx" 
+                    required 
+                  />
+                </div>
+                <div className="md:col-span-3">
+                  <Button type="submit" disabled={savingKey} className="w-full">
+                    {savingKey ? "Saving..." : "Save Key"}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Saved Keys</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>RTMP URL</TableHead>
+                    <TableHead>Saved At</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {savedKeys.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-muted-foreground">No keys saved</TableCell>
+                    </TableRow>
+                  ) : (
+                    savedKeys.map(k => (
+                      <TableRow key={k.id}>
+                        <TableCell className="font-medium">{k.name}</TableCell>
+                        <TableCell>{k.rtmp_url}</TableCell>
+                        <TableCell>{new Date(k.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
+                        <TableCell>
+                          <Button variant="destructive" size="sm" onClick={() => handleDeleteKey(k.id)}>Delete</Button>
                         </TableCell>
                       </TableRow>
                     ))
