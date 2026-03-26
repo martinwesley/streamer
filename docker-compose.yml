@@ -13,4 +13,4 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=7575
-      - JWT_SECRET=${JWT_SECRET} #change-this-to-a-secure-random-string
+      - JWT_SECRET=change-this-to-a-secure-random-string

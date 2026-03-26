@@ -259,7 +259,7 @@ app.prepare().then(async () => {
   });
 
   // Fallback to Next.js handler
-  server.all('*', (req, res) => {
+  server.all(/.*/, (req, res) => {
     return handle(req, res);
   });
 
