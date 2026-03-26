@@ -123,7 +123,7 @@ app.prepare().then(async () => {
         sql: 'INSERT INTO users (username, password_hash) VALUES (?, ?)',
         args: [username, hash]
       });
-      res.json({ success: true, userId: result.lastInsertRowid });
+      res.json({ success: true, userId: Number(result.lastInsertRowid) });
     } catch (err) {
       res.status(400).json({ error: 'Username might already exist' });
     }
@@ -167,7 +167,7 @@ app.prepare().then(async () => {
         sql: 'INSERT INTO videos (user_id, filename, original_name, path, size) VALUES (?, ?, ?, ?, ?)',
         args: [req.user.id, req.file.filename, req.file.originalname, req.file.path, req.file.size]
       });
-      res.json({ success: true, videoId: result.lastInsertRowid });
+      res.json({ success: true, videoId: Number(result.lastInsertRowid) });
     } catch (err) {
       res.status(500).json({ error: 'Database error' });
     }
@@ -204,7 +204,7 @@ app.prepare().then(async () => {
             sql: 'INSERT INTO videos (user_id, filename, original_name, path, size) VALUES (?, ?, ?, ?, ?)',
             args: [req.user.id, filename, 'imported_video', destPath, stats.size]
           });
-          res.json({ success: true, videoId: result.lastInsertRowid });
+          res.json({ success: true, videoId: Number(result.lastInsertRowid) });
         });
         
         fileStream.on('error', (err) => {
@@ -238,7 +238,7 @@ app.prepare().then(async () => {
         sql: 'INSERT INTO streams (user_id, video_id, rtmp_url, stream_key, scheduled_for) VALUES (?, ?, ?, ?, ?)',
         args: [req.user.id, video_id, rtmp_url, stream_key, scheduled_for]
       });
-      res.json({ success: true, streamId: result.lastInsertRowid });
+      res.json({ success: true, streamId: Number(result.lastInsertRowid) });
     } catch (err) {
       res.status(500).json({ error: 'Database error' });
     }
