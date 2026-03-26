@@ -1,0 +1,341 @@
+import express from 'express';
+import next from 'next';
+import { createClient } from '@libsql/client';
+import cron from 'node-cron';
+import { spawn } from 'child_process';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import bcrypt from 'bcrypt';
+import * as jose from 'jose';
+import https from 'https';
+import http from 'http';
+
+const dev = process.env.NODE_ENV !== 'production';
+const app = next({ dev });
+const handle = app.getRequestHandler();
+
+const port = process.env.PORT || 3000;
+
+// Ensure uploads directory exists
+const uploadsDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Ensure db directory exists
+const dbDir = path.join(process.cwd(), 'data');
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
+const db = createClient({ url: `file:${path.join(dbDir, 'local.db')}` });
+
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'super-secret-key-change-in-prod');
+
+async function initDb() {
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE,
+      password_hash TEXT
+    )
+  `);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS videos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      filename TEXT,
+      original_name TEXT,
+      path TEXT,
+      size INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS streams (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      video_id INTEGER,
+      rtmp_url TEXT,
+      stream_key TEXT,
+      scheduled_for DATETIME,
+      status TEXT DEFAULT 'pending',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+
+// Multer setup for video uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadsDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+const upload = multer({ storage: storage });
+
+// JWT Middleware
+async function authenticateToken(req, res, next) {
+  const token = req.cookies?.token || req.headers['authorization']?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    const { payload } = await jose.jwtVerify(token, JWT_SECRET);
+    req.user = payload;
+    next();
+  } catch (err) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+}
+
+app.prepare().then(async () => {
+  await initDb();
+
+  const server = express();
+  server.use(express.json());
+  
+  // Parse cookies manually for simplicity
+  server.use((req, res, next) => {
+    const cookieHeader = req.headers.cookie;
+    req.cookies = {};
+    if (cookieHeader) {
+      cookieHeader.split(';').forEach(cookie => {
+        const parts = cookie.split('=');
+        req.cookies[parts.shift().trim()] = decodeURI(parts.join('='));
+      });
+    }
+    next();
+  });
+
+  // --- API Routes ---
+
+  server.post('/api/auth/register', async (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Missing fields' });
+
+    try {
+      const hash = await bcrypt.hash(password, 10);
+      const result = await db.execute({
+        sql: 'INSERT INTO users (username, password_hash) VALUES (?, ?)',
+        args: [username, hash]
+      });
+      res.json({ success: true, userId: result.lastInsertRowid });
+    } catch (err) {
+      res.status(400).json({ error: 'Username might already exist' });
+    }
+  });
+
+  server.post('/api/auth/login', async (req, res) => {
+    const { username, password } = req.body;
+    const result = await db.execute({
+      sql: 'SELECT * FROM users WHERE username = ?',
+      args: [username]
+    });
+    const user = result.rows[0];
+
+    if (user && await bcrypt.compare(password, user.password_hash)) {
+      const token = await new jose.SignJWT({ id: user.id, username: user.username })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setExpirationTime('24h')
+        .sign(JWT_SECRET);
+      
+      res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' });
+      res.json({ success: true, token });
+    } else {
+      res.status(401).json({ error: 'Invalid credentials' });
+    }
+  });
+
+  server.post('/api/auth/logout', (req, res) => {
+    res.clearCookie('token');
+    res.json({ success: true });
+  });
+
+  server.get('/api/auth/me', authenticateToken, (req, res) => {
+    res.json({ user: req.user });
+  });
+
+  server.post('/api/videos/upload', authenticateToken, upload.single('video'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    
+    try {
+      const result = await db.execute({
+        sql: 'INSERT INTO videos (user_id, filename, original_name, path, size) VALUES (?, ?, ?, ?, ?)',
+        args: [req.user.id, req.file.filename, req.file.originalname, req.file.path, req.file.size]
+      });
+      res.json({ success: true, videoId: result.lastInsertRowid });
+    } catch (err) {
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  server.post('/api/videos/import', authenticateToken, async (req, res) => {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'No URL provided' });
+
+    try {
+      const filename = Date.now() + '-imported.mp4';
+      const destPath = path.join(uploadsDir, filename);
+      
+      const response = await fetch(url);
+      if (!response.ok) {
+        return res.status(400).json({ error: 'Failed to download file' });
+      }
+      
+      const fileStream = fs.createWriteStream(destPath);
+      
+      // Node.js 18+ fetch response body is a web ReadableStream
+      // We can use stream.Readable.fromWeb to pipe it
+      const { Readable } = await import('stream');
+      const readableWebStream = response.body;
+      
+      if (readableWebStream) {
+        const nodeStream = Readable.fromWeb(readableWebStream);
+        nodeStream.pipe(fileStream);
+        
+        fileStream.on('finish', async () => {
+          fileStream.close();
+          const stats = fs.statSync(destPath);
+          const result = await db.execute({
+            sql: 'INSERT INTO videos (user_id, filename, original_name, path, size) VALUES (?, ?, ?, ?, ?)',
+            args: [req.user.id, filename, 'imported_video', destPath, stats.size]
+          });
+          res.json({ success: true, videoId: result.lastInsertRowid });
+        });
+        
+        fileStream.on('error', (err) => {
+          fs.unlink(destPath, () => {});
+          res.status(500).json({ error: err.message });
+        });
+      } else {
+        res.status(400).json({ error: 'Empty response body' });
+      }
+    } catch (err) {
+      res.status(500).json({ error: 'Import failed' });
+    }
+  });
+
+  server.get('/api/videos', authenticateToken, async (req, res) => {
+    const result = await db.execute({
+      sql: 'SELECT * FROM videos WHERE user_id = ? ORDER BY created_at DESC',
+      args: [req.user.id]
+    });
+    res.json({ videos: result.rows });
+  });
+
+  server.post('/api/streams', authenticateToken, async (req, res) => {
+    const { video_id, rtmp_url, stream_key, scheduled_for } = req.body;
+    if (!video_id || !rtmp_url || !stream_key || !scheduled_for) {
+      return res.status(400).json({ error: 'Missing fields' });
+    }
+
+    try {
+      const result = await db.execute({
+        sql: 'INSERT INTO streams (user_id, video_id, rtmp_url, stream_key, scheduled_for) VALUES (?, ?, ?, ?, ?)',
+        args: [req.user.id, video_id, rtmp_url, stream_key, scheduled_for]
+      });
+      res.json({ success: true, streamId: result.lastInsertRowid });
+    } catch (err) {
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  server.get('/api/streams', authenticateToken, async (req, res) => {
+    const result = await db.execute({
+      sql: `
+        SELECT s.*, v.original_name as video_name 
+        FROM streams s 
+        JOIN videos v ON s.video_id = v.id 
+        WHERE s.user_id = ? 
+        ORDER BY s.scheduled_for DESC
+      `,
+      args: [req.user.id]
+    });
+    res.json({ streams: result.rows });
+  });
+
+  // Fallback to Next.js handler
+  server.all('*', (req, res) => {
+    return handle(req, res);
+  });
+
+  server.listen(port, () => {
+    console.log(`> Ready on http://localhost:${port}`);
+  });
+
+  // --- Cron Job for Streaming ---
+  cron.schedule('* * * * *', async () => {
+    console.log('Checking for scheduled streams...');
+    const now = new Date().toISOString();
+    
+    try {
+      const result = await db.execute({
+        sql: `
+          SELECT s.*, v.path as video_path 
+          FROM streams s 
+          JOIN videos v ON s.video_id = v.id 
+          WHERE s.status = 'pending' AND s.scheduled_for <= ?
+        `,
+        args: [now]
+      });
+
+      for (const row of result.rows) {
+        startStream(row);
+      }
+    } catch (err) {
+      console.error('Error checking streams:', err);
+    }
+  });
+
+  function startStream(stream) {
+    const { id, video_path, rtmp_url, stream_key } = stream;
+    // Ensure URL ends with / if needed, though usually it's just concatenated
+    const separator = rtmp_url.endsWith('/') ? '' : '/';
+    const fullRtmpUrl = `${rtmp_url}${separator}${stream_key}`;
+    
+    console.log(`Starting stream ${id} to ${rtmp_url}`);
+    
+    db.execute({
+      sql: "UPDATE streams SET status = 'streaming' WHERE id = ?",
+      args: [id]
+    });
+
+    const ffmpeg = spawn('ffmpeg', [
+      '-re',
+      '-i', video_path,
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-b:v', '3000k',
+      '-maxrate', '3000k',
+      '-bufsize', '6000k',
+      '-pix_fmt', 'yuv420p',
+      '-g', '50',
+      '-c:a', 'aac',
+      '-b:a', '160k',
+      '-ac', '2',
+      '-ar', '44100',
+      '-f', 'flv',
+      fullRtmpUrl
+    ]);
+
+    ffmpeg.stdout.on('data', (data) => {
+      // console.log(`ffmpeg stdout: ${data}`);
+    });
+
+    ffmpeg.stderr.on('data', (data) => {
+      // console.error(`ffmpeg stderr: ${data}`);
+    });
+
+    ffmpeg.on('close', (code) => {
+      console.log(`ffmpeg process for stream ${id} exited with code ${code}`);
+      db.execute({
+        sql: "UPDATE streams SET status = ? WHERE id = ?",
+        args: [code === 0 ? 'completed' : 'failed', id]
+      });
+    });
+  }
+});

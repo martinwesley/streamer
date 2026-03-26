@@ -1,0 +1,5 @@
+{
+  "name": "StreamScheduler",
+  "description": "Live stream from video file to YouTube and schedule it to automate.",
+  "requestFramePermissions": []
+}
