@@ -258,6 +258,49 @@ app.prepare().then(async () => {
     res.json({ streams: result.rows });
   });
 
+  server.delete('/api/videos/:id', authenticateToken, async (req, res) => {
+    const videoId = req.params.id;
+    try {
+      const videoRes = await db.execute({
+        sql: 'SELECT * FROM videos WHERE id = ? AND user_id = ?',
+        args: [videoId, req.user.id]
+      });
+      const video = videoRes.rows[0];
+      if (!video) return res.status(404).json({ error: 'Video not found' });
+
+      if (fs.existsSync(video.path)) {
+        fs.unlinkSync(video.path);
+      }
+
+      await db.execute({
+        sql: 'DELETE FROM videos WHERE id = ?',
+        args: [videoId]
+      });
+      
+      await db.execute({
+        sql: 'DELETE FROM streams WHERE video_id = ?',
+        args: [videoId]
+      });
+
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to delete video' });
+    }
+  });
+
+  server.delete('/api/streams/:id', authenticateToken, async (req, res) => {
+    const streamId = req.params.id;
+    try {
+      await db.execute({
+        sql: 'DELETE FROM streams WHERE id = ? AND user_id = ?',
+        args: [streamId, req.user.id]
+      });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to delete stream' });
+    }
+  });
+
   // Fallback to Next.js handler
   server.all(/.*/, (req, res) => {
     return handle(req, res);
@@ -270,7 +313,8 @@ app.prepare().then(async () => {
   // --- Cron Job for Streaming ---
   cron.schedule('* * * * *', async () => {
     console.log('Checking for scheduled streams...');
-    const now = new Date().toISOString();
+    const now = new Date();
+    const serverLocalTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     
     try {
       const result = await db.execute({
@@ -280,7 +324,7 @@ app.prepare().then(async () => {
           JOIN videos v ON s.video_id = v.id 
           WHERE s.status = 'pending' AND s.scheduled_for <= ?
         `,
-        args: [now]
+        args: [serverLocalTime]
       });
 
       for (const row of result.rows) {
@@ -307,6 +351,7 @@ app.prepare().then(async () => {
     const ffmpeg = spawn('ffmpeg', [
       '-re',
       '-i', video_path,
+      '-vf', 'tpad=stop_mode=clone:stop_duration=5',
       '-c:v', 'libx264',
       '-preset', 'veryfast',
       '-b:v', '3000k',

@@ -141,7 +141,7 @@ export default function Dashboard() {
           video_id: selectedVideo,
           rtmp_url: rtmpUrl,
           stream_key: streamKey,
-          scheduled_for: new Date(scheduledFor).toISOString(),
+          scheduled_for: scheduledFor,
         }),
       });
       if (res.ok) {
@@ -157,6 +157,37 @@ export default function Dashboard() {
       toast.error("An error occurred while scheduling");
     } finally {
       setScheduling(false);
+    }
+  };
+
+  const handleDeleteVideo = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this video?")) return;
+    try {
+      const res = await fetch(`/api/videos/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success("Video deleted");
+        fetchVideos();
+        fetchStreams();
+      } else {
+        toast.error("Failed to delete video");
+      }
+    } catch (err) {
+      toast.error("Error deleting video");
+    }
+  };
+
+  const handleDeleteStream = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this stream?")) return;
+    try {
+      const res = await fetch(`/api/streams/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success("Stream deleted");
+        fetchStreams();
+      } else {
+        toast.error("Failed to delete stream");
+      }
+    } catch (err) {
+      toast.error("Error deleting stream");
     }
   };
 
@@ -247,18 +278,19 @@ export default function Dashboard() {
                     <TableHead>Scheduled For</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Created At</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {streams.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-gray-500">No streams scheduled</TableCell>
+                      <TableCell colSpan={5} className="text-center text-gray-500">No streams scheduled</TableCell>
                     </TableRow>
                   ) : (
                     streams.map(s => (
                       <TableRow key={s.id}>
                         <TableCell className="font-medium">{s.video_name}</TableCell>
-                        <TableCell>{new Date(s.scheduled_for).toLocaleString()}</TableCell>
+                        <TableCell>{s.scheduled_for.replace('T', ' ')}</TableCell>
                         <TableCell>
                           <span className={`px-2 py-1 rounded-full text-xs font-semibold
                             ${s.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : ''}
@@ -269,7 +301,10 @@ export default function Dashboard() {
                             {s.status.toUpperCase()}
                           </span>
                         </TableCell>
-                        <TableCell>{new Date(s.created_at).toLocaleString()}</TableCell>
+                        <TableCell>{new Date(s.created_at + 'Z').toLocaleString()}</TableCell>
+                        <TableCell>
+                          <Button variant="destructive" size="sm" onClick={() => handleDeleteStream(s.id)}>Delete</Button>
+                        </TableCell>
                       </TableRow>
                     ))
                   )}
@@ -341,19 +376,23 @@ export default function Dashboard() {
                     <TableHead>Filename</TableHead>
                     <TableHead>Size</TableHead>
                     <TableHead>Uploaded At</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {videos.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={3} className="text-center text-gray-500">No videos uploaded</TableCell>
+                      <TableCell colSpan={4} className="text-center text-gray-500">No videos uploaded</TableCell>
                     </TableRow>
                   ) : (
                     videos.map(v => (
                       <TableRow key={v.id}>
                         <TableCell className="font-medium">{v.original_name}</TableCell>
                         <TableCell>{(v.size / (1024 * 1024)).toFixed(2)} MB</TableCell>
-                        <TableCell>{new Date(v.created_at).toLocaleString()}</TableCell>
+                        <TableCell>{new Date(v.created_at + 'Z').toLocaleString()}</TableCell>
+                        <TableCell>
+                          <Button variant="destructive" size="sm" onClick={() => handleDeleteVideo(v.id)}>Delete</Button>
+                        </TableCell>
                       </TableRow>
                     ))
                   )}
