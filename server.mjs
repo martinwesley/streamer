@@ -314,7 +314,8 @@ app.prepare().then(async () => {
   cron.schedule('* * * * *', async () => {
     console.log('Checking for scheduled streams...');
     const now = new Date();
-    const serverLocalTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const kolkataTimeStr = now.toLocaleString('sv-SE', { timeZone: 'Asia/Kolkata' });
+    const serverLocalTime = kolkataTimeStr.replace(' ', 'T').slice(0, 16);
     
     try {
       const result = await db.execute({
