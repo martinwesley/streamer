@@ -31,6 +31,7 @@ export default function Dashboard() {
   const [selectedVideo, setSelectedVideo] = useState("");
   const [rtmpUrl, setRtmpUrl] = useState("rtmp://a.rtmp.youtube.com/live2");
   const [streamKey, setStreamKey] = useState("");
+  const [broadcastId, setBroadcastId] = useState("");
   const [scheduledFor, setScheduledFor] = useState("");
   const [scheduling, setScheduling] = useState(false);
   const [selectedSavedKey, setSelectedSavedKey] = useState("");
@@ -44,6 +45,16 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchUser();
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'YOUTUBE_AUTH_SUCCESS') {
+        toast.success("YouTube connected!");
+        fetchUser();
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchUser = async () => {
@@ -66,6 +77,16 @@ export default function Dashboard() {
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
+  };
+
+  const handleConnectYouTube = async () => {
+    try {
+      const res = await fetch("/api/auth/youtube/url");
+      const { url } = await res.json();
+      window.open(url, 'youtube_auth', 'width=600,height=700');
+    } catch (err) {
+      toast.error("Failed to get YouTube auth URL");
+    }
   };
 
   const fetchVideos = async () => {
@@ -200,6 +221,7 @@ export default function Dashboard() {
           video_id: selectedVideo,
           rtmp_url: rtmpUrl,
           stream_key: streamKey,
+          broadcast_id: broadcastId,
           scheduled_for: scheduledFor,
         }),
       });
@@ -207,6 +229,7 @@ export default function Dashboard() {
         toast.success("Stream scheduled successfully");
         setSelectedVideo("");
         setStreamKey("");
+        setBroadcastId("");
         setScheduledFor("");
         setSelectedSavedKey("");
         fetchStreams();
@@ -259,6 +282,14 @@ export default function Dashboard() {
         <h1 className="text-3xl font-bold">StreamScheduler</h1>
         <div className="flex items-center gap-4">
           <span className="text-muted-foreground">Welcome, {user.username}</span>
+          {!user.youtube_tokens && (
+            <Button variant="outline" onClick={handleConnectYouTube} className="border-red-500 text-red-500 hover:bg-red-500/10">
+              Connect YouTube
+            </Button>
+          )}
+          {user.youtube_tokens && (
+            <span className="text-xs text-green-500 font-medium px-2 py-1 bg-green-500/10 rounded">YouTube Connected</span>
+          )}
           <Button variant="outline" onClick={handleLogout}>Logout</Button>
         </div>
       </div>
@@ -329,6 +360,14 @@ export default function Dashboard() {
                     onChange={e => setStreamKey(e.target.value)} 
                     placeholder="xxxx-xxxx-xxxx-xxxx" 
                     required 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Broadcast ID (Optional - for YouTube API)</Label>
+                  <Input 
+                    value={broadcastId} 
+                    onChange={e => setBroadcastId(e.target.value)} 
+                    placeholder="YouTube Broadcast ID" 
                   />
                 </div>
                 <div className="space-y-2">
