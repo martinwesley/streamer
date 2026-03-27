@@ -11,6 +11,7 @@ import * as jose from 'jose';
 import https from 'https';
 import http from 'http';
 import { google } from 'googleapis';
+import ffmpegPath from 'ffmpeg-static';
 
 const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
@@ -217,6 +218,47 @@ app.prepare().then(async () => {
     } catch (err) {
       console.error('YouTube OAuth error:', err);
       res.status(500).send('Authentication failed');
+    }
+  });
+
+  server.get('/api/youtube/broadcasts', authenticateToken, async (req, res) => {
+    try {
+      const userResult = await db.execute({
+        sql: 'SELECT youtube_tokens FROM users WHERE id = ?',
+        args: [req.user.id]
+      });
+      const tokensStr = userResult.rows[0]?.youtube_tokens;
+      if (!tokensStr) {
+        return res.status(400).json({ error: 'YouTube not connected' });
+      }
+
+      const tokens = JSON.parse(tokensStr);
+      const auth = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        `${process.env.APP_URL}/api/auth/youtube/callback`
+      );
+      auth.setCredentials(tokens);
+
+      const youtube = google.youtube({ version: 'v3', auth });
+      const response = await youtube.liveBroadcasts.list({
+        part: ['snippet', 'status'],
+        broadcastStatus: 'all',
+        broadcastType: 'all',
+        maxResults: 50
+      });
+
+      const broadcasts = response.data.items?.map(item => ({
+        id: item.id,
+        title: item.snippet?.title,
+        status: item.status?.lifeCycleStatus,
+        scheduledStartTime: item.snippet?.scheduledStartTime
+      })) || [];
+
+      res.json({ broadcasts });
+    } catch (err) {
+      console.error('Failed to fetch broadcasts:', err);
+      res.status(500).json({ error: 'Failed to fetch broadcasts' });
     }
   });
 
@@ -444,7 +486,7 @@ app.prepare().then(async () => {
       args: [id]
     });
 
-    const ffmpeg = spawn('ffmpeg', [
+    const ffmpeg = spawn(ffmpegPath, [
       '-re',
       '-i', video_path,
       '-vf', 'tpad=stop_mode=clone:stop_duration=5',
@@ -469,6 +511,14 @@ app.prepare().then(async () => {
 
     ffmpeg.stderr.on('data', (data) => {
       // console.error(`ffmpeg stderr: ${data}`);
+    });
+
+    ffmpeg.on('error', (err) => {
+      console.error(`Failed to start ffmpeg process for stream ${id}:`, err);
+      db.execute({
+        sql: "UPDATE streams SET status = 'failed' WHERE id = ?",
+        args: [id]
+      });
     });
 
     ffmpeg.on('close', async (code) => {

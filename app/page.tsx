@@ -35,6 +35,7 @@ export default function Dashboard() {
   const [scheduledFor, setScheduledFor] = useState("");
   const [scheduling, setScheduling] = useState(false);
   const [selectedSavedKey, setSelectedSavedKey] = useState("");
+  const [broadcasts, setBroadcasts] = useState<any[]>([]);
 
   // Saved Keys state
   const [savedKeys, setSavedKeys] = useState<any[]>([]);
@@ -66,6 +67,9 @@ export default function Dashboard() {
         fetchVideos();
         fetchStreams();
         fetchSavedKeys();
+        if (data.user.youtube_tokens) {
+          fetchBroadcasts();
+        }
       } else {
         router.push("/login");
       }
@@ -102,6 +106,18 @@ export default function Dashboard() {
     if (res.ok) {
       const data = await res.json();
       setStreams(data.streams);
+    }
+  };
+
+  const fetchBroadcasts = async () => {
+    try {
+      const res = await fetch("/api/youtube/broadcasts");
+      if (res.ok) {
+        const data = await res.json();
+        setBroadcasts(data.broadcasts);
+      }
+    } catch (err) {
+      console.error("Failed to fetch broadcasts", err);
     }
   };
 
@@ -321,7 +337,9 @@ export default function Dashboard() {
                     }
                   }}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select a saved key to auto-fill" />
+                      <SelectValue placeholder="Select a saved key to auto-fill">
+                        {selectedSavedKey ? (savedKeys.find(k => k.id.toString() === selectedSavedKey)?.name || "Unknown Key") : "Select a saved key to auto-fill"}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {savedKeys.map(k => (
@@ -334,7 +352,9 @@ export default function Dashboard() {
                   <Label>Select Video</Label>
                   <Select value={selectedVideo || undefined} onValueChange={(val) => setSelectedVideo(val || "")}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select a video" />
+                      <SelectValue placeholder="Select a video">
+                        {selectedVideo ? (videos.find(v => v.id.toString() === selectedVideo)?.original_name || "Unknown Video") : "Select a video"}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {videos.map(v => (
@@ -364,11 +384,28 @@ export default function Dashboard() {
                 </div>
                 <div className="space-y-2">
                   <Label>Broadcast ID (Optional - for YouTube API)</Label>
-                  <Input 
-                    value={broadcastId} 
-                    onChange={e => setBroadcastId(e.target.value)} 
-                    placeholder="YouTube Broadcast ID" 
-                  />
+                  {user.youtube_tokens ? (
+                    <Select value={broadcastId || undefined} onValueChange={(val) => setBroadcastId(val === "none" ? "" : (val || ""))}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a YouTube Broadcast">
+                          {broadcastId ? (broadcasts.find(b => b.id === broadcastId)?.title || "Unknown Broadcast") : "Select a YouTube Broadcast"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {broadcasts.map(b => (
+                          <SelectItem key={b.id} value={b.id}>{b.title} ({b.status})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input 
+                      value={broadcastId} 
+                      onChange={e => setBroadcastId(e.target.value)} 
+                      placeholder="Connect YouTube to select broadcast" 
+                      disabled
+                    />
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Schedule Time</Label>
