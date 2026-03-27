@@ -44,27 +44,6 @@ function buildFfmpegOutputUrl(rtmpUrl, streamKey) {
   return `${base}/${cleanedKey}`;
 }
 
-const dataRoot = '/app';
-const dbDir = path.join(dataRoot, 'data');
-const uploadsDir = path.join(dataRoot, 'uploads');
-const appLogFile = path.join(dbDir, 'server.log');
-const appLogLines = [];
-const MAX_LOG_LINES = 400;
-let previousNetworkSnapshot = null;
-
-function appendAppLog(message) {
-  const line = `[${new Date().toISOString()}] ${message}`;
-  appLogLines.push(line);
-  if (appLogLines.length > MAX_LOG_LINES) {
-    appLogLines.shift();
-  }
-  try {
-    fs.appendFileSync(appLogFile, `${line}\n`);
-  } catch (err) {
-    // Keep runtime logging resilient even if disk logging fails
-  }
-}
-
 // Ensure db directory exists
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
@@ -625,12 +604,8 @@ app.prepare().then(async () => {
   function startStream(stream) {
     const { id, user_id, video_path, rtmp_url, stream_key, broadcast_id } = stream;
     const fullRtmpUrl = buildFfmpegOutputUrl(rtmp_url, stream_key);
-    const fallbackRtmpUrl = fullRtmpUrl
-      .replace('a.rtmps.youtube.com', 'b.rtmps.youtube.com')
-      .replace('a.rtmp.youtube.com', 'b.rtmp.youtube.com');
 
     console.log(`Starting stream ${id} to ${fullRtmpUrl}`);
-    appendAppLog(`Starting stream ${id} with primary ingest ${fullRtmpUrl}`);
     
     db.execute({
       sql: "UPDATE streams SET status = 'streaming' WHERE id = ?",
