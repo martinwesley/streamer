@@ -16,7 +16,7 @@ const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
 const handle = app.getRequestHandler();
 
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 7575;
 
 // Ensure db directory exists
 const dbDir = path.join(process.cwd(), 'data');
