@@ -20,20 +20,92 @@ const handle = app.getRequestHandler();
 
 const port = process.env.PORT || 7575;
 
+const DEFAULT_YOUTUBE_INGEST_URL = 'rtmp://a.rtmp.youtube.com/live2';
+
+function sanitizeRtmpBaseUrl(url) {
+  if (!url) return DEFAULT_YOUTUBE_INGEST_URL;
+  const trimmed = String(url).trim();
+  if (!trimmed) return DEFAULT_YOUTUBE_INGEST_URL;
+  return trimmed.replace(/\/+$/, '');
+}
+
+function buildFfmpegOutputUrl(rtmpUrl, streamKey) {
+  const key = String(streamKey || '').trim();
+  if (key.startsWith('rtmp://') || key.startsWith('rtmps://')) {
+    return key;
+  }
+
+  const base = sanitizeRtmpBaseUrl(rtmpUrl)
+    .replace('rtmp://a.rtmp.youtube.com/live2', DEFAULT_YOUTUBE_INGEST_URL)
+    .replace('rtmps://a.rtmp.youtube.com/live2', DEFAULT_YOUTUBE_INGEST_URL)
+    .replace('rtmp://a.rtmps.youtube.com/live2', DEFAULT_YOUTUBE_INGEST_URL)
+    .replace('rtmps://a.rtmps.youtube.com/live2', DEFAULT_YOUTUBE_INGEST_URL);
+
+  const cleanedKey = key.replace(/^\/+/, '');
+  return `${base}/${cleanedKey}`;
+}
+
+function buildYoutubeFallbackTargets(fullRtmpUrl) {
+  const candidates = [fullRtmpUrl];
+  const streamKey = fullRtmpUrl.split('/live2/')[1] || '';
+  const extraTargets = [
+    `rtmp://a.rtmp.youtube.com/live2/${streamKey}`,
+    `rtmp://b.rtmp.youtube.com/live2/${streamKey}`,
+    `rtmp://x.rtmp.youtube.com/live2/${streamKey}`,
+    `rtmps://a.rtmps.youtube.com/live2/${streamKey}`,
+    `rtmps://b.rtmps.youtube.com/live2/${streamKey}`
+  ];
+
+  for (const target of extraTargets) {
+    if (target && !candidates.includes(target)) {
+      candidates.push(target);
+    }
+  }
+  return candidates;
+}
+
+const DATA_ROOT = '/app';
+const DATA_DIR = path.join(DATA_ROOT, 'data');
+const UPLOADS_DIR = path.join(DATA_ROOT, 'uploads');
+const APP_LOG_FILE = path.join(DATA_DIR, 'server.log');
+const appLogLines = [];
+const MAX_LOG_LINES = 400;
+let previousNetworkSnapshot = null;
+
+function appendAppLog(message) {
+  const line = `[${new Date().toISOString()}] ${message}`;
+  appLogLines.push(line);
+  if (appLogLines.length > MAX_LOG_LINES) {
+    appLogLines.shift();
+  }
+  try {
+    fs.appendFileSync(APP_LOG_FILE, `${line}\n`);
+  } catch (err) {
+    // Keep runtime logging resilient even if disk logging fails
+  }
+}
+
 // Ensure db directory exists
-const isDockerOrCloud = fs.existsSync('/app');
-const dbDir = process.env.DATA_DIR || (isDockerOrCloud ? '/app/data' : path.join(process.cwd(), 'data'));
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
 // Ensure uploads directory exists inside the persistent data volume
-const uploadsDir = process.env.UPLOADS_DIR || (isDockerOrCloud ? '/app/uploads' : path.join(process.cwd(), 'uploads'));
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
-const db = createClient({ url: `file:${path.join(dbDir, 'local.db')}` });
+if (fs.existsSync(APP_LOG_FILE)) {
+  try {
+    const existing = fs.readFileSync(APP_LOG_FILE, 'utf8').split('\n').filter(Boolean);
+    const tail = existing.slice(-MAX_LOG_LINES);
+    appLogLines.push(...tail);
+  } catch (err) {
+    // Ignore log bootstrap errors
+  }
+}
+
+const db = createClient({ url: `file:${path.join(DATA_DIR, 'local.db')}` });
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'super-secret-key-change-in-prod');
 
@@ -104,12 +176,13 @@ async function initDb() {
   await db.execute(`
     UPDATE streams SET status = 'failed' WHERE status = 'streaming'
   `);
+  appendAppLog('Database initialized and interrupted streams marked as failed.');
 }
 
 // Multer setup for video uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, uploadsDir);
+    cb(null, UPLOADS_DIR);
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -332,7 +405,7 @@ app.prepare().then(async () => {
 
     try {
       const filename = Date.now() + '-imported.mp4';
-      const destPath = path.join(uploadsDir, filename);
+      const destPath = path.join(UPLOADS_DIR, filename);
       
       const response = await fetch(url);
       if (!response.ok) {
@@ -403,12 +476,25 @@ app.prepare().then(async () => {
         si.networkStats()
       ]);
 
+      const totalRxBytes = networkStats.reduce((acc, net) => acc + (net.rx_bytes || 0), 0);
+      const totalTxBytes = networkStats.reduce((acc, net) => acc + (net.tx_bytes || 0), 0);
+      const nowMs = Date.now();
       let rx_sec = 0;
       let tx_sec = 0;
-      networkStats.forEach(net => {
-        rx_sec += net.rx_sec;
-        tx_sec += net.tx_sec;
-      });
+
+      if (previousNetworkSnapshot) {
+        const elapsedSeconds = (nowMs - previousNetworkSnapshot.timestampMs) / 1000;
+        if (elapsedSeconds > 0) {
+          rx_sec = Math.max(0, (totalRxBytes - previousNetworkSnapshot.rxBytes) / elapsedSeconds);
+          tx_sec = Math.max(0, (totalTxBytes - previousNetworkSnapshot.txBytes) / elapsedSeconds);
+        }
+      }
+
+      previousNetworkSnapshot = {
+        rxBytes: totalRxBytes,
+        txBytes: totalTxBytes,
+        timestampMs: nowMs
+      };
 
       const mainFs = fsSize.find(fs => fs.mount === '/') || fsSize[0];
 
@@ -428,8 +514,14 @@ app.prepare().then(async () => {
         }
       });
     } catch (error) {
+      appendAppLog(`Failed to fetch system stats: ${error?.message || 'Unknown error'}`);
       res.status(500).json({ error: 'Failed to fetch system stats' });
     }
+  });
+
+  server.get('/api/system-logs', authenticateToken, async (req, res) => {
+    const lastTwenty = appLogLines.slice(-20);
+    res.json({ logs: lastTwenty });
   });
 
   server.get('/api/videos', authenticateToken, async (req, res) => {
@@ -521,6 +613,7 @@ app.prepare().then(async () => {
 
   server.listen(port, () => {
     console.log(`> Ready on http://localhost:${port}`);
+    appendAppLog(`Server started on port ${port}. Using DB at ${DATA_DIR} and uploads at ${UPLOADS_DIR}.`);
   });
 
   // --- Cron Job for Streaming ---
@@ -551,11 +644,11 @@ app.prepare().then(async () => {
 
   function startStream(stream) {
     const { id, user_id, video_path, rtmp_url, stream_key, broadcast_id } = stream;
-    // Ensure URL ends with / if needed, though usually it's just concatenated
-    const separator = rtmp_url.endsWith('/') ? '' : '/';
-    const fullRtmpUrl = `${rtmp_url}${separator}${stream_key}`;
-    
-    console.log(`Starting stream ${id} to ${rtmp_url}`);
+    const fullRtmpUrl = buildFfmpegOutputUrl(rtmp_url, stream_key);
+    const candidateTargets = buildYoutubeFallbackTargets(fullRtmpUrl);
+
+    console.log(`Starting stream ${id} to ${fullRtmpUrl}`);
+    appendAppLog(`Starting stream ${id} with primary ingest ${fullRtmpUrl}`);
     
     db.execute({
       sql: "UPDATE streams SET status = 'streaming' WHERE id = ?",
@@ -593,64 +686,82 @@ app.prepare().then(async () => {
       args.push('-map', '0:v:0', '-map', '1:a:0', '-shortest');
     }
 
-    args.push('-f', 'flv', fullRtmpUrl);
+    const runFfmpeg = (targetUrl, attempt = 1) => {
+      const runArgs = [...args, '-f', 'flv', targetUrl];
+      const ffmpeg = spawn(ffmpegPath, runArgs);
+      let ffmpegErrOutput = '';
 
-    const ffmpeg = spawn(ffmpegPath, args);
-
-    ffmpeg.stdout.on('data', (data) => {
-      // console.log(`ffmpeg stdout: ${data}`);
-    });
-
-    ffmpeg.stderr.on('data', (data) => {
-      console.error(`ffmpeg stderr: ${data}`);
-    });
-
-    ffmpeg.on('error', (err) => {
-      console.error(`Failed to start ffmpeg process for stream ${id}:`, err);
-      db.execute({
-        sql: "UPDATE streams SET status = 'failed' WHERE id = ?",
-        args: [id]
-      });
-    });
-
-    ffmpeg.on('close', async (code) => {
-      console.log(`ffmpeg process for stream ${id} exited with code ${code}`);
-      db.execute({
-        sql: "UPDATE streams SET status = ? WHERE id = ?",
-        args: [code === 0 ? 'completed' : 'failed', id]
+      ffmpeg.stdout.on('data', (data) => {
+        // console.log(`ffmpeg stdout: ${data}`);
       });
 
-      if (code === 0 && broadcast_id) {
-        console.log(`Waiting 5 seconds to end YouTube broadcast ${broadcast_id}...`);
-        setTimeout(async () => {
-          try {
-            const userResult = await db.execute({
-              sql: 'SELECT youtube_tokens FROM users WHERE id = ?',
-              args: [user_id]
-            });
-            const tokensStr = userResult.rows[0]?.youtube_tokens;
-            if (tokensStr) {
-              const tokens = JSON.parse(tokensStr);
-              const auth = new google.auth.OAuth2(
-                process.env.GOOGLE_CLIENT_ID,
-                process.env.GOOGLE_CLIENT_SECRET,
-                `${process.env.APP_URL}/api/auth/youtube/callback`
-              );
-              auth.setCredentials(tokens);
-              
-              const youtube = google.youtube({ version: 'v3', auth });
-              await youtube.liveBroadcasts.transition({
-                id: broadcast_id,
-                broadcastStatus: 'complete',
-                part: ['id', 'status']
+      ffmpeg.stderr.on('data', (data) => {
+        const message = data.toString();
+        ffmpegErrOutput += message;
+        console.error(`ffmpeg stderr: ${message}`);
+        appendAppLog(`ffmpeg[stream:${id}] ${message.trim()}`);
+      });
+
+      ffmpeg.on('error', (err) => {
+        console.error(`Failed to start ffmpeg process for stream ${id}:`, err);
+        appendAppLog(`Failed to start ffmpeg process for stream ${id}: ${err.message}`);
+        db.execute({
+          sql: "UPDATE streams SET status = 'failed' WHERE id = ?",
+          args: [id]
+        });
+      });
+
+      ffmpeg.on('close', async (code) => {
+        const hasDnsError = /Failed to resolve hostname|Cannot open connection/i.test(ffmpegErrOutput);
+        if (code !== 0 && hasDnsError && attempt < candidateTargets.length) {
+          const nextTarget = candidateTargets[attempt];
+          appendAppLog(`Ingest failed for stream ${id}. Retrying target ${attempt + 1}/${candidateTargets.length}: ${nextTarget}`);
+          return runFfmpeg(nextTarget, attempt + 1);
+        }
+
+        console.log(`ffmpeg process for stream ${id} exited with code ${code}`);
+        appendAppLog(`ffmpeg process for stream ${id} exited with code ${code}`);
+        db.execute({
+          sql: "UPDATE streams SET status = ? WHERE id = ?",
+          args: [code === 0 ? 'completed' : 'failed', id]
+        });
+
+        if (code === 0 && broadcast_id) {
+          console.log(`Waiting 5 seconds to end YouTube broadcast ${broadcast_id}...`);
+          setTimeout(async () => {
+            try {
+              const userResult = await db.execute({
+                sql: 'SELECT youtube_tokens FROM users WHERE id = ?',
+                args: [user_id]
               });
-              console.log(`Successfully ended YouTube broadcast ${broadcast_id}`);
+              const tokensStr = userResult.rows[0]?.youtube_tokens;
+              if (tokensStr) {
+                const tokens = JSON.parse(tokensStr);
+                const auth = new google.auth.OAuth2(
+                  process.env.GOOGLE_CLIENT_ID,
+                  process.env.GOOGLE_CLIENT_SECRET,
+                  `${process.env.APP_URL}/api/auth/youtube/callback`
+                );
+                auth.setCredentials(tokens);
+                
+                const youtube = google.youtube({ version: 'v3', auth });
+                await youtube.liveBroadcasts.transition({
+                  id: broadcast_id,
+                  broadcastStatus: 'complete',
+                  part: ['id', 'status']
+                });
+                console.log(`Successfully ended YouTube broadcast ${broadcast_id}`);
+                appendAppLog(`Successfully ended YouTube broadcast ${broadcast_id}`);
+              }
+            } catch (err) {
+              console.error(`Failed to end YouTube broadcast ${broadcast_id}:`, err);
+              appendAppLog(`Failed to end YouTube broadcast ${broadcast_id}: ${err.message}`);
             }
-          } catch (err) {
-            console.error(`Failed to end YouTube broadcast ${broadcast_id}:`, err);
-          }
-        }, 5000);
-      }
-    });
+          }, 5000);
+        }
+      });
+    };
+
+    runFfmpeg(candidateTargets[0], 1);
   }
 });
