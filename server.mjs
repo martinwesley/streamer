@@ -2,7 +2,7 @@ import express from 'express';
 import next from 'next';
 import { createClient } from '@libsql/client';
 import cron from 'node-cron';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -562,9 +562,19 @@ app.prepare().then(async () => {
       args: [id]
     });
 
-    const ffmpeg = spawn(ffmpegPath, [
+    const probeRes = spawnSync(ffmpegPath, ['-i', video_path]);
+    const hasAudio = probeRes.stderr.toString().includes('Audio:');
+    
+    const args = [
       '-re',
-      '-i', video_path,
+      '-i', video_path
+    ];
+
+    if (!hasAudio) {
+      args.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100');
+    }
+
+    args.push(
       '-vf', 'tpad=stop_mode=clone:stop_duration=5',
       '-c:v', 'libx264',
       '-preset', 'veryfast',
@@ -576,17 +586,23 @@ app.prepare().then(async () => {
       '-c:a', 'aac',
       '-b:a', '160k',
       '-ac', '2',
-      '-ar', '44100',
-      '-f', 'flv',
-      fullRtmpUrl
-    ]);
+      '-ar', '44100'
+    );
+
+    if (!hasAudio) {
+      args.push('-map', '0:v:0', '-map', '1:a:0', '-shortest');
+    }
+
+    args.push('-f', 'flv', fullRtmpUrl);
+
+    const ffmpeg = spawn(ffmpegPath, args);
 
     ffmpeg.stdout.on('data', (data) => {
       // console.log(`ffmpeg stdout: ${data}`);
     });
 
     ffmpeg.stderr.on('data', (data) => {
-      // console.error(`ffmpeg stderr: ${data}`);
+      console.error(`ffmpeg stderr: ${data}`);
     });
 
     ffmpeg.on('error', (err) => {
