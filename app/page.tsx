@@ -67,7 +67,8 @@ export default function Dashboard() {
     };
 
     fetchStats();
-    const statsInterval = setInterval(fetchStats, 3000);
+    const statsInterval = setInterval(fetchStats, 1000);
+    const streamsInterval = setInterval(fetchStreams, 2000);
 
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'YOUTUBE_AUTH_SUCCESS') {
@@ -79,6 +80,7 @@ export default function Dashboard() {
     return () => {
       window.removeEventListener('message', handleMessage);
       clearInterval(statsInterval);
+      clearInterval(streamsInterval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -776,15 +778,19 @@ export default function Dashboard() {
                     <div className="flex justify-between text-sm">
                       <span className="flex items-center gap-2 text-muted-foreground"><Network className="w-4 h-4" /> Network</span>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="bg-muted p-2 rounded flex flex-col items-center">
-                        <span className="text-muted-foreground">Download</span>
-                        <span className="font-medium text-green-500">{(serverStats.network.rx_sec / (1024 * 1024)).toFixed(2)} MB/s</span>
-                      </div>
-                      <div className="bg-muted p-2 rounded flex flex-col items-center">
-                        <span className="text-muted-foreground">Upload</span>
-                        <span className="font-medium text-blue-500">{(serverStats.network.tx_sec / (1024 * 1024)).toFixed(2)} MB/s</span>
-                      </div>
+                    <div className="space-y-2">
+                      {serverStats.network.interfaces.map((net: any) => (
+                        <div key={net.iface} className="bg-muted p-2 rounded text-xs">
+                          <div className="flex justify-between">
+                            <span className="font-medium">{net.iface}</span>
+                            <span className={net.operstate === 'up' ? 'text-green-500' : 'text-red-500'}>{net.operstate}</span>
+                          </div>
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Down: {(net.rx_sec / (1024 * 1024)).toFixed(2)} MB/s</span>
+                            <span>Up: {(net.tx_sec / (1024 * 1024)).toFixed(2)} MB/s</span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </>

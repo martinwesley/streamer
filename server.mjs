@@ -402,6 +402,7 @@ app.prepare().then(async () => {
         si.fsSize(),
         si.networkStats()
       ]);
+      console.log('networkStats:', JSON.stringify(networkStats, null, 2));
 
       let rx_sec = 0;
       let tx_sec = 0;
@@ -424,7 +425,14 @@ app.prepare().then(async () => {
         },
         network: {
           rx_sec,
-          tx_sec
+          tx_sec,
+          interfaces: networkStats.map(net => ({
+            iface: net.iface,
+            operstate: net.operstate,
+            rx_sec: net.rx_sec,
+            tx_sec: net.tx_sec,
+            speed: net.speed
+          }))
         }
       });
     } catch (error) {
@@ -567,6 +575,8 @@ app.prepare().then(async () => {
     
     const args = [
       '-v', 'debug',
+      '-use_ipv4', '1',
+      '-protocol_whitelist', 'file,rtmp,tcp,udp,crypto,tls',
       '-re',
       '-i', video_path
     ];
