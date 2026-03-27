@@ -360,7 +360,7 @@ export default function Dashboard() {
 
   return (
     <div className="container mx-auto max-w-7xl px-4 py-8 md:px-8">
-      <div className="flex justify-between items-center mb-8">
+      <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <h1 className="text-3xl font-bold">StreamScheduler</h1>
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-muted-foreground">Welcome, {user.username}</span>

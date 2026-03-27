@@ -44,19 +44,40 @@ function buildFfmpegOutputUrl(rtmpUrl, streamKey) {
   return `${base}/${cleanedKey}`;
 }
 
+const DATA_ROOT = '/app';
+const DATA_DIR = path.join(DATA_ROOT, 'data');
+const UPLOADS_DIR = path.join(DATA_ROOT, 'uploads');
+const APP_LOG_FILE = path.join(DATA_DIR, 'server.log');
+const appLogLines = [];
+const MAX_LOG_LINES = 400;
+let previousNetworkSnapshot = null;
+
+function appendAppLog(message) {
+  const line = `[${new Date().toISOString()}] ${message}`;
+  appLogLines.push(line);
+  if (appLogLines.length > MAX_LOG_LINES) {
+    appLogLines.shift();
+  }
+  try {
+    fs.appendFileSync(APP_LOG_FILE, `${line}\n`);
+  } catch (err) {
+    // Keep runtime logging resilient even if disk logging fails
+  }
+}
+
 // Ensure db directory exists
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
 // Ensure uploads directory exists inside the persistent data volume
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
-if (fs.existsSync(appLogFile)) {
+if (fs.existsSync(APP_LOG_FILE)) {
   try {
-    const existing = fs.readFileSync(appLogFile, 'utf8').split('\n').filter(Boolean);
+    const existing = fs.readFileSync(APP_LOG_FILE, 'utf8').split('\n').filter(Boolean);
     const tail = existing.slice(-MAX_LOG_LINES);
     appLogLines.push(...tail);
   } catch (err) {
@@ -64,7 +85,7 @@ if (fs.existsSync(appLogFile)) {
   }
 }
 
-const db = createClient({ url: `file:${path.join(dbDir, 'local.db')}` });
+const db = createClient({ url: `file:${path.join(DATA_DIR, 'local.db')}` });
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'super-secret-key-change-in-prod');
 
@@ -141,7 +162,7 @@ async function initDb() {
 // Multer setup for video uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, uploadsDir);
+    cb(null, UPLOADS_DIR);
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -364,7 +385,7 @@ app.prepare().then(async () => {
 
     try {
       const filename = Date.now() + '-imported.mp4';
-      const destPath = path.join(uploadsDir, filename);
+      const destPath = path.join(UPLOADS_DIR, filename);
       
       const response = await fetch(url);
       if (!response.ok) {
@@ -572,7 +593,7 @@ app.prepare().then(async () => {
 
   server.listen(port, () => {
     console.log(`> Ready on http://localhost:${port}`);
-    appendAppLog(`Server started on port ${port}. Using DB at ${dbDir} and uploads at ${uploadsDir}.`);
+    appendAppLog(`Server started on port ${port}. Using DB at ${DATA_DIR} and uploads at ${UPLOADS_DIR}.`);
   });
 
   // --- Cron Job for Streaming ---
@@ -604,8 +625,12 @@ app.prepare().then(async () => {
   function startStream(stream) {
     const { id, user_id, video_path, rtmp_url, stream_key, broadcast_id } = stream;
     const fullRtmpUrl = buildFfmpegOutputUrl(rtmp_url, stream_key);
+    const fallbackRtmpUrl = fullRtmpUrl
+      .replace('a.rtmps.youtube.com', 'b.rtmps.youtube.com')
+      .replace('a.rtmp.youtube.com', 'b.rtmp.youtube.com');
 
     console.log(`Starting stream ${id} to ${fullRtmpUrl}`);
+    appendAppLog(`Starting stream ${id} with primary ingest ${fullRtmpUrl}`);
     
     db.execute({
       sql: "UPDATE streams SET status = 'streaming' WHERE id = ?",
