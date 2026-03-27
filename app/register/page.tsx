@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import Link from "next/link";
 
 export default function RegisterPage() {
   const [username, setUsername] = useState("");
@@ -35,11 +34,11 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Register</CardTitle>
-          <CardDescription>Create a new account to start streaming.</CardDescription>
+    <div className="flex min-h-screen items-center justify-center px-4 py-10">
+      <Card className="w-full max-w-md border-white/20 bg-card/80 backdrop-blur-xl shadow-2xl">
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-2xl">Create account</CardTitle>
+          <CardDescription>Set up your account to start scheduling professional live streams.</CardDescription>
         </CardHeader>
         <form onSubmit={handleRegister}>
           <CardContent className="space-y-4">
@@ -65,10 +64,8 @@ export default function RegisterPage() {
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
-            <Button type="submit" className="w-full">Register</Button>
-            <div className="text-sm text-center text-gray-500">
-              Already have an account? <Link href="/login" className="text-blue-500 hover:underline">Login</Link>
-            </div>
+            <Button type="submit" className="w-full">Create Account</Button>
+            <div className="text-sm text-center text-muted-foreground">Use your existing credentials to sign in.</div>
           </CardFooter>
         </form>
       </Card>
