@@ -12,6 +12,7 @@ import https from 'https';
 import http from 'http';
 import { google } from 'googleapis';
 import ffmpegPath from 'ffmpeg-static';
+import si from 'systeminformation';
 
 const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
@@ -20,13 +21,14 @@ const handle = app.getRequestHandler();
 const port = process.env.PORT || 7575;
 
 // Ensure db directory exists
-const dbDir = path.join(process.cwd(), 'data');
+const isDockerOrCloud = fs.existsSync('/app');
+const dbDir = process.env.DATA_DIR || (isDockerOrCloud ? '/app/data' : path.join(process.cwd(), 'data'));
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
 
 // Ensure uploads directory exists inside the persistent data volume
-const uploadsDir = path.join(dbDir, 'uploads');
+const uploadsDir = process.env.UPLOADS_DIR || (isDockerOrCloud ? '/app/uploads' : path.join(process.cwd(), 'uploads'));
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -97,6 +99,11 @@ async function initDb() {
       args: [hash, 'martin']
     });
   }
+
+  // Reset any streams that were interrupted by a server restart
+  await db.execute(`
+    UPDATE streams SET status = 'failed' WHERE status = 'streaming'
+  `);
 }
 
 // Multer setup for video uploads
@@ -310,9 +317,18 @@ app.prepare().then(async () => {
     }
   });
 
+  // Global map for import progress
+  const importProgressMap = new Map();
+
   server.post('/api/videos/import', authenticateToken, async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: 'No URL provided' });
+
+    const importId = Date.now().toString() + Math.random().toString(36).substring(7);
+    importProgressMap.set(importId, { progress: 0, status: 'downloading' });
+    
+    // Send back the importId immediately so client can poll
+    res.json({ success: true, importId });
 
     try {
       const filename = Date.now() + '-imported.mp4';
@@ -320,18 +336,34 @@ app.prepare().then(async () => {
       
       const response = await fetch(url);
       if (!response.ok) {
-        return res.status(400).json({ error: 'Failed to download file' });
+        importProgressMap.set(importId, { progress: 0, status: 'failed', error: 'Failed to download file' });
+        return;
       }
       
+      const contentLength = response.headers.get('content-length');
+      const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+      let downloadedBytes = 0;
+
       const fileStream = fs.createWriteStream(destPath);
       
-      // Node.js 18+ fetch response body is a web ReadableStream
-      // We can use stream.Readable.fromWeb to pipe it
       const { Readable } = await import('stream');
       const readableWebStream = response.body;
       
       if (readableWebStream) {
         const nodeStream = Readable.fromWeb(readableWebStream);
+        
+        nodeStream.on('data', (chunk) => {
+          downloadedBytes += chunk.length;
+          if (totalBytes > 0) {
+            const percent = Math.round((downloadedBytes / totalBytes) * 100);
+            importProgressMap.set(importId, { progress: percent, status: 'downloading' });
+          } else {
+            // Fake progress if no content length
+            const currentProgress = importProgressMap.get(importId)?.progress || 0;
+            importProgressMap.set(importId, { progress: Math.min(currentProgress + 1, 99), status: 'downloading' });
+          }
+        });
+
         nodeStream.pipe(fileStream);
         
         fileStream.on('finish', async () => {
@@ -341,18 +373,62 @@ app.prepare().then(async () => {
             sql: 'INSERT INTO videos (user_id, filename, original_name, path, size) VALUES (?, ?, ?, ?, ?)',
             args: [req.user.id, filename, 'imported_video', destPath, stats.size]
           });
-          res.json({ success: true, videoId: Number(result.lastInsertRowid) });
+          importProgressMap.set(importId, { progress: 100, status: 'completed', videoId: Number(result.lastInsertRowid) });
         });
         
         fileStream.on('error', (err) => {
           fs.unlink(destPath, () => {});
-          res.status(500).json({ error: err.message });
+          importProgressMap.set(importId, { progress: 0, status: 'failed', error: err.message });
         });
       } else {
-        res.status(400).json({ error: 'Empty response body' });
+        importProgressMap.set(importId, { progress: 0, status: 'failed', error: 'Empty response body' });
       }
     } catch (err) {
-      res.status(500).json({ error: 'Import failed' });
+      importProgressMap.set(importId, { progress: 0, status: 'failed', error: 'Import failed' });
+    }
+  });
+
+  server.get('/api/videos/import-progress/:id', authenticateToken, (req, res) => {
+    const data = importProgressMap.get(req.params.id);
+    if (!data) return res.status(404).json({ error: 'Not found' });
+    res.json(data);
+  });
+
+  server.get('/api/system-stats', authenticateToken, async (req, res) => {
+    try {
+      const [cpu, mem, fsSize, networkStats] = await Promise.all([
+        si.currentLoad(),
+        si.mem(),
+        si.fsSize(),
+        si.networkStats()
+      ]);
+
+      let rx_sec = 0;
+      let tx_sec = 0;
+      networkStats.forEach(net => {
+        rx_sec += net.rx_sec;
+        tx_sec += net.tx_sec;
+      });
+
+      const mainFs = fsSize.find(fs => fs.mount === '/') || fsSize[0];
+
+      res.json({
+        cpu: cpu.currentLoad,
+        memory: {
+          used: mem.active,
+          total: mem.total
+        },
+        disk: {
+          used: mainFs ? mainFs.used : 0,
+          total: mainFs ? mainFs.size : 0
+        },
+        network: {
+          rx_sec,
+          tx_sec
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch system stats' });
     }
   });
 

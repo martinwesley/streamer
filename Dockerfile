@@ -17,6 +17,9 @@ COPY . .
 # Build the Next.js application
 RUN npm run build
 
+# Define volumes for persistent data
+VOLUME ["/app/data", "/app/uploads"]
+
 # Expose the requested port
 ENV PORT=7575
 EXPOSE 7575

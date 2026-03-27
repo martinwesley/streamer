@@ -11,7 +11,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Folder } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Folder, Activity, HardDrive, Cpu, Network } from "lucide-react";
+import axios from "axios";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -22,10 +24,15 @@ export default function Dashboard() {
   // Upload state
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   
   // Import state
   const [importUrl, setImportUrl] = useState("");
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+
+  // Server stats state
+  const [serverStats, setServerStats] = useState<any>(null);
   
   // Stream state
   const [selectedVideo, setSelectedVideo] = useState("");
@@ -47,6 +54,21 @@ export default function Dashboard() {
   useEffect(() => {
     fetchUser();
 
+    const fetchStats = async () => {
+      try {
+        const res = await fetch("/api/system-stats");
+        if (res.ok) {
+          const data = await res.json();
+          setServerStats(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch server stats", err);
+      }
+    };
+
+    fetchStats();
+    const statsInterval = setInterval(fetchStats, 3000);
+
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'YOUTUBE_AUTH_SUCCESS') {
         toast.success("YouTube connected!");
@@ -54,7 +76,10 @@ export default function Dashboard() {
       }
     };
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      clearInterval(statsInterval);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -175,15 +200,20 @@ export default function Dashboard() {
     if (!file) return toast.error("Please select a file");
     
     setUploading(true);
+    setUploadProgress(0);
     const formData = new FormData();
     formData.append("video", file);
     
     try {
-      const res = await fetch("/api/videos/upload", {
-        method: "POST",
-        body: formData,
+      const res = await axios.post("/api/videos/upload", formData, {
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            setUploadProgress(percentCompleted);
+          }
+        }
       });
-      if (res.ok) {
+      if (res.status === 200) {
         toast.success("Video uploaded successfully");
         setFile(null);
         fetchVideos();
@@ -194,6 +224,7 @@ export default function Dashboard() {
       toast.error("An error occurred during upload");
     } finally {
       setUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -202,6 +233,7 @@ export default function Dashboard() {
     if (!importUrl) return toast.error("Please enter a URL");
     
     setImporting(true);
+    setImportProgress(0);
     try {
       const res = await fetch("/api/videos/import", {
         method: "POST",
@@ -209,15 +241,41 @@ export default function Dashboard() {
         body: JSON.stringify({ url: importUrl }),
       });
       if (res.ok) {
-        toast.success("Video imported successfully");
-        setImportUrl("");
-        fetchVideos();
+        const data = await res.json();
+        const importId = data.importId;
+        
+        // Poll for progress
+        const pollInterval = setInterval(async () => {
+          try {
+            const progressRes = await fetch(`/api/videos/import-progress/${importId}`);
+            if (progressRes.ok) {
+              const progressData = await progressRes.json();
+              setImportProgress(progressData.progress);
+              
+              if (progressData.status === 'completed') {
+                clearInterval(pollInterval);
+                toast.success("Video imported successfully");
+                setImportUrl("");
+                fetchVideos();
+                setImporting(false);
+                setTimeout(() => setImportProgress(0), 1000);
+              } else if (progressData.status === 'failed') {
+                clearInterval(pollInterval);
+                toast.error(progressData.error || "Import failed");
+                setImporting(false);
+                setImportProgress(0);
+              }
+            }
+          } catch (e) {
+            // Ignore polling errors
+          }
+        }, 1000);
       } else {
         toast.error("Import failed");
+        setImporting(false);
       }
     } catch (err) {
       toast.error("An error occurred during import");
-    } finally {
       setImporting(false);
     }
   };
@@ -310,7 +368,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <Tabs defaultValue="streams" className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="lg:col-span-3">
+          <Tabs defaultValue="streams" className="space-y-6">
         <TabsList>
           <TabsTrigger value="streams">Scheduled Streams</TabsTrigger>
           <TabsTrigger value="videos">My Videos</TabsTrigger>
@@ -504,6 +564,15 @@ export default function Dashboard() {
                   <Button type="submit" disabled={uploading || !file} className="w-full">
                     {uploading ? "Uploading..." : "Upload Video"}
                   </Button>
+                  {uploading && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Uploading...</span>
+                        <span>{uploadProgress}%</span>
+                      </div>
+                      <Progress value={uploadProgress} className="h-2" />
+                    </div>
+                  )}
                 </form>
               </CardContent>
             </Card>
@@ -530,6 +599,15 @@ export default function Dashboard() {
                   <Button type="submit" disabled={importing || !importUrl} className="w-full">
                     {importing ? "Importing..." : "Import Video"}
                   </Button>
+                  {importing && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Importing...</span>
+                        <span>{importProgress}%</span>
+                      </div>
+                      <Progress value={importProgress} className="h-2" />
+                    </div>
+                  )}
                 </form>
               </CardContent>
             </Card>
@@ -653,6 +731,72 @@ export default function Dashboard() {
           </Card>
         </TabsContent>
       </Tabs>
+        </div>
+
+        <div className="lg:col-span-1 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Activity className="w-5 h-5" />
+                Server Status
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {serverStats ? (
+                <>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="flex items-center gap-2 text-muted-foreground"><Cpu className="w-4 h-4" /> CPU</span>
+                      <span className="font-medium">{serverStats.cpu.toFixed(1)}%</span>
+                    </div>
+                    <Progress value={serverStats.cpu} className="h-2" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="flex items-center gap-2 text-muted-foreground"><HardDrive className="w-4 h-4" /> Memory</span>
+                      <span className="font-medium">
+                        {(serverStats.memory.used / (1024 * 1024 * 1024)).toFixed(1)}GB / {(serverStats.memory.total / (1024 * 1024 * 1024)).toFixed(1)}GB
+                      </span>
+                    </div>
+                    <Progress value={(serverStats.memory.used / serverStats.memory.total) * 100} className="h-2" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="flex items-center gap-2 text-muted-foreground"><Folder className="w-4 h-4" /> Disk</span>
+                      <span className="font-medium">
+                        {(serverStats.disk.used / (1024 * 1024 * 1024)).toFixed(1)}GB / {(serverStats.disk.total / (1024 * 1024 * 1024)).toFixed(1)}GB
+                      </span>
+                    </div>
+                    <Progress value={(serverStats.disk.used / serverStats.disk.total) * 100} className="h-2" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="flex items-center gap-2 text-muted-foreground"><Network className="w-4 h-4" /> Network</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-muted p-2 rounded flex flex-col items-center">
+                        <span className="text-muted-foreground">Download</span>
+                        <span className="font-medium text-green-500">{(serverStats.network.rx_sec / (1024 * 1024)).toFixed(2)} MB/s</span>
+                      </div>
+                      <div className="bg-muted p-2 rounded flex flex-col items-center">
+                        <span className="text-muted-foreground">Upload</span>
+                        <span className="font-medium text-blue-500">{(serverStats.network.tx_sec / (1024 * 1024)).toFixed(2)} MB/s</span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center text-sm text-muted-foreground py-8">
+                  Loading stats...
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
