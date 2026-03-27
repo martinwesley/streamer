@@ -33,10 +33,11 @@ export default function Dashboard() {
 
   // Server stats state
   const [serverStats, setServerStats] = useState<any>(null);
+  const [systemLogs, setSystemLogs] = useState<string[]>([]);
   
   // Stream state
   const [selectedVideo, setSelectedVideo] = useState("");
-  const [rtmpUrl, setRtmpUrl] = useState("rtmp://a.rtmp.youtube.com/live2");
+  const [rtmpUrl, setRtmpUrl] = useState("rtmps://a.rtmps.youtube.com/live2");
   const [streamKey, setStreamKey] = useState("");
   const [broadcastId, setBroadcastId] = useState("");
   const [scheduledFor, setScheduledFor] = useState("");
@@ -47,7 +48,7 @@ export default function Dashboard() {
   // Saved Keys state
   const [savedKeys, setSavedKeys] = useState<any[]>([]);
   const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyRtmp, setNewKeyRtmp] = useState("rtmp://a.rtmp.youtube.com/live2");
+  const [newKeyRtmp, setNewKeyRtmp] = useState("rtmps://a.rtmps.youtube.com/live2");
   const [newKeyStream, setNewKeyStream] = useState("");
   const [savingKey, setSavingKey] = useState(false);
 
@@ -56,10 +57,17 @@ export default function Dashboard() {
 
     const fetchStats = async () => {
       try {
-        const res = await fetch("/api/system-stats");
-        if (res.ok) {
-          const data = await res.json();
+        const [statsRes, logsRes] = await Promise.all([
+          fetch("/api/system-stats"),
+          fetch("/api/system-logs")
+        ]);
+        if (statsRes.ok) {
+          const data = await statsRes.json();
           setServerStats(data);
+        }
+        if (logsRes.ok) {
+          const data = await logsRes.json();
+          setSystemLogs(data.logs || []);
         }
       } catch (err) {
         console.error("Failed to fetch server stats", err);
@@ -348,13 +356,13 @@ export default function Dashboard() {
     }
   };
 
-  if (!user) return <div className="p-8 text-center">Loading...</div>;
+  if (!user) return <div className="p-8 text-center text-muted-foreground">Loading your dashboard...</div>;
 
   return (
-    <div className="container mx-auto p-6 max-w-6xl">
-      <div className="flex justify-between items-center mb-8">
+    <div className="container mx-auto max-w-7xl px-4 py-8 md:px-8">
+      <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <h1 className="text-3xl font-bold">StreamScheduler</h1>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3">
           <span className="text-muted-foreground">Welcome, {user.username}</span>
           {!user.youtube_tokens && (
             <Button variant="outline" onClick={handleConnectYouTube} className="border-red-500 text-red-500 hover:bg-red-500/10">
@@ -371,7 +379,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-3">
           <Tabs defaultValue="streams" className="space-y-6">
-        <TabsList>
+        <TabsList className="bg-muted/50 backdrop-blur border">
           <TabsTrigger value="streams">Scheduled Streams</TabsTrigger>
           <TabsTrigger value="videos">My Videos</TabsTrigger>
           <TabsTrigger value="keys">Stream Keys</TabsTrigger>
@@ -383,7 +391,7 @@ export default function Dashboard() {
               <CardTitle>Schedule New Stream</CardTitle>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSchedule} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <form onSubmit={handleSchedule} className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <div className="space-y-2 md:col-span-2">
                   <Label>Use Saved Stream Key (Optional)</Label>
                   <Select value={selectedSavedKey || undefined} onValueChange={(val) => {
@@ -408,7 +416,7 @@ export default function Dashboard() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 xl:col-span-1">
                   <Label>Select Video</Label>
                   <Select value={selectedVideo || undefined} onValueChange={(val) => setSelectedVideo(val || "")}>
                     <SelectTrigger>
@@ -423,16 +431,16 @@ export default function Dashboard() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 xl:col-span-1">
                   <Label>RTMP URL</Label>
                   <Input 
                     value={rtmpUrl} 
                     onChange={e => setRtmpUrl(e.target.value)} 
-                    placeholder="rtmp://a.rtmp.youtube.com/live2" 
+                    placeholder="rtmps://a.rtmps.youtube.com/live2" 
                     required 
                   />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 xl:col-span-1">
                   <Label>Stream Key</Label>
                   <Input 
                     type="password"
@@ -442,7 +450,7 @@ export default function Dashboard() {
                     required 
                   />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 xl:col-span-2">
                   <Label>Broadcast ID (Optional - for YouTube API)</Label>
                   {user.youtube_tokens ? (
                     <Select value={broadcastId || undefined} onValueChange={(val) => setBroadcastId(val === "none" ? "" : (val || ""))}>
@@ -467,7 +475,7 @@ export default function Dashboard() {
                     />
                   )}
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 xl:col-span-1">
                   <Label>Schedule Time</Label>
                   <Input 
                     type="datetime-local" 
@@ -476,7 +484,7 @@ export default function Dashboard() {
                     required 
                   />
                 </div>
-                <div className="md:col-span-2">
+                <div className="md:col-span-2 xl:col-span-3">
                   <Button type="submit" disabled={scheduling} className="w-full">
                     {scheduling ? "Scheduling..." : "Schedule Stream"}
                   </Button>
@@ -656,7 +664,7 @@ export default function Dashboard() {
               <CardTitle>Save New Stream Key</CardTitle>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSaveKey} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <form onSubmit={handleSaveKey} className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <div className="space-y-2">
                   <Label>Name (e.g. YouTube Main)</Label>
                   <Input 
@@ -671,7 +679,7 @@ export default function Dashboard() {
                   <Input 
                     value={newKeyRtmp} 
                     onChange={e => setNewKeyRtmp(e.target.value)} 
-                    placeholder="rtmp://a.rtmp.youtube.com/live2" 
+                    placeholder="rtmps://a.rtmps.youtube.com/live2" 
                     required 
                   />
                 </div>
@@ -793,6 +801,25 @@ export default function Dashboard() {
                   Loading stats...
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Last 20 System Logs</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-72 overflow-auto rounded-lg border bg-background/40 p-3 font-mono text-xs leading-relaxed">
+                {systemLogs.length === 0 ? (
+                  <div className="text-muted-foreground">No logs available.</div>
+                ) : (
+                  systemLogs.map((line, index) => (
+                    <div key={`${index}-${line.slice(0, 15)}`} className="border-b border-border/40 py-1 last:border-b-0">
+                      {line}
+                    </div>
+                  ))
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>
