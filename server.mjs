@@ -20,7 +20,7 @@ const handle = app.getRequestHandler();
 
 const port = process.env.PORT || 7575;
 
-const DEFAULT_YOUTUBE_INGEST_URL = 'rtmps://a.rtmps.youtube.com/live2';
+const DEFAULT_YOUTUBE_INGEST_URL = 'rtmp://a.rtmp.youtube.com/live2';
 
 function sanitizeRtmpBaseUrl(url) {
   if (!url) return DEFAULT_YOUTUBE_INGEST_URL;
@@ -38,10 +38,30 @@ function buildFfmpegOutputUrl(rtmpUrl, streamKey) {
   const base = sanitizeRtmpBaseUrl(rtmpUrl)
     .replace('rtmp://a.rtmp.youtube.com/live2', DEFAULT_YOUTUBE_INGEST_URL)
     .replace('rtmps://a.rtmp.youtube.com/live2', DEFAULT_YOUTUBE_INGEST_URL)
-    .replace('rtmp://a.rtmps.youtube.com/live2', DEFAULT_YOUTUBE_INGEST_URL);
+    .replace('rtmp://a.rtmps.youtube.com/live2', DEFAULT_YOUTUBE_INGEST_URL)
+    .replace('rtmps://a.rtmps.youtube.com/live2', DEFAULT_YOUTUBE_INGEST_URL);
 
   const cleanedKey = key.replace(/^\/+/, '');
   return `${base}/${cleanedKey}`;
+}
+
+function buildYoutubeFallbackTargets(fullRtmpUrl) {
+  const candidates = [fullRtmpUrl];
+  const streamKey = fullRtmpUrl.split('/live2/')[1] || '';
+  const extraTargets = [
+    `rtmp://a.rtmp.youtube.com/live2/${streamKey}`,
+    `rtmp://b.rtmp.youtube.com/live2/${streamKey}`,
+    `rtmp://x.rtmp.youtube.com/live2/${streamKey}`,
+    `rtmps://a.rtmps.youtube.com/live2/${streamKey}`,
+    `rtmps://b.rtmps.youtube.com/live2/${streamKey}`
+  ];
+
+  for (const target of extraTargets) {
+    if (target && !candidates.includes(target)) {
+      candidates.push(target);
+    }
+  }
+  return candidates;
 }
 
 const DATA_ROOT = '/app';
@@ -625,9 +645,7 @@ app.prepare().then(async () => {
   function startStream(stream) {
     const { id, user_id, video_path, rtmp_url, stream_key, broadcast_id } = stream;
     const fullRtmpUrl = buildFfmpegOutputUrl(rtmp_url, stream_key);
-    const fallbackRtmpUrl = fullRtmpUrl
-      .replace('a.rtmps.youtube.com', 'b.rtmps.youtube.com')
-      .replace('a.rtmp.youtube.com', 'b.rtmp.youtube.com');
+    const candidateTargets = buildYoutubeFallbackTargets(fullRtmpUrl);
 
     console.log(`Starting stream ${id} to ${fullRtmpUrl}`);
     appendAppLog(`Starting stream ${id} with primary ingest ${fullRtmpUrl}`);
@@ -695,9 +713,10 @@ app.prepare().then(async () => {
 
       ffmpeg.on('close', async (code) => {
         const hasDnsError = /Failed to resolve hostname|Cannot open connection/i.test(ffmpegErrOutput);
-        if (code !== 0 && attempt === 1 && fallbackRtmpUrl !== targetUrl && hasDnsError) {
-          appendAppLog(`Primary ingest failed for stream ${id}. Retrying with fallback ${fallbackRtmpUrl}`);
-          return runFfmpeg(fallbackRtmpUrl, 2);
+        if (code !== 0 && hasDnsError && attempt < candidateTargets.length) {
+          const nextTarget = candidateTargets[attempt];
+          appendAppLog(`Ingest failed for stream ${id}. Retrying target ${attempt + 1}/${candidateTargets.length}: ${nextTarget}`);
+          return runFfmpeg(nextTarget, attempt + 1);
         }
 
         console.log(`ffmpeg process for stream ${id} exited with code ${code}`);
@@ -743,6 +762,6 @@ app.prepare().then(async () => {
       });
     };
 
-    runFfmpeg(fullRtmpUrl);
+    runFfmpeg(candidateTargets[0], 1);
   }
 });
