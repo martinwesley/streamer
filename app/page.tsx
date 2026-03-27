@@ -36,7 +36,7 @@ export default function Dashboard() {
   
   // Stream state
   const [selectedVideo, setSelectedVideo] = useState("");
-  const [rtmpUrl, setRtmpUrl] = useState("rtmp://a.rtmp.youtube.com/live2");
+  const [rtmpUrl, setRtmpUrl] = useState("rtmps://a.rtmps.youtube.com/live2");
   const [streamKey, setStreamKey] = useState("");
   const [broadcastId, setBroadcastId] = useState("");
   const [scheduledFor, setScheduledFor] = useState("");
@@ -47,7 +47,7 @@ export default function Dashboard() {
   // Saved Keys state
   const [savedKeys, setSavedKeys] = useState<any[]>([]);
   const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyRtmp, setNewKeyRtmp] = useState("rtmp://a.rtmp.youtube.com/live2");
+  const [newKeyRtmp, setNewKeyRtmp] = useState("rtmps://a.rtmps.youtube.com/live2");
   const [newKeyStream, setNewKeyStream] = useState("");
   const [savingKey, setSavingKey] = useState(false);
 
@@ -348,10 +348,10 @@ export default function Dashboard() {
     }
   };
 
-  if (!user) return <div className="p-8 text-center">Loading...</div>;
+  if (!user) return <div className="p-8 text-center text-muted-foreground">Loading your dashboard...</div>;
 
   return (
-    <div className="container mx-auto p-6 max-w-6xl">
+    <div className="container mx-auto max-w-7xl px-4 py-8 md:px-8">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">StreamScheduler</h1>
         <div className="flex items-center gap-4">
@@ -371,7 +371,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-3">
           <Tabs defaultValue="streams" className="space-y-6">
-        <TabsList>
+        <TabsList className="bg-muted/50 backdrop-blur border">
           <TabsTrigger value="streams">Scheduled Streams</TabsTrigger>
           <TabsTrigger value="videos">My Videos</TabsTrigger>
           <TabsTrigger value="keys">Stream Keys</TabsTrigger>
@@ -428,7 +428,7 @@ export default function Dashboard() {
                   <Input 
                     value={rtmpUrl} 
                     onChange={e => setRtmpUrl(e.target.value)} 
-                    placeholder="rtmp://a.rtmp.youtube.com/live2" 
+                    placeholder="rtmps://a.rtmps.youtube.com/live2" 
                     required 
                   />
                 </div>
@@ -671,7 +671,7 @@ export default function Dashboard() {
                   <Input 
                     value={newKeyRtmp} 
                     onChange={e => setNewKeyRtmp(e.target.value)} 
-                    placeholder="rtmp://a.rtmp.youtube.com/live2" 
+                    placeholder="rtmps://a.rtmps.youtube.com/live2" 
                     required 
                   />
                 </div>

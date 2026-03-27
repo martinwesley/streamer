@@ -20,6 +20,30 @@ const handle = app.getRequestHandler();
 
 const port = process.env.PORT || 7575;
 
+const DEFAULT_YOUTUBE_INGEST_URL = 'rtmps://a.rtmps.youtube.com/live2';
+
+function sanitizeRtmpBaseUrl(url) {
+  if (!url) return DEFAULT_YOUTUBE_INGEST_URL;
+  const trimmed = String(url).trim();
+  if (!trimmed) return DEFAULT_YOUTUBE_INGEST_URL;
+  return trimmed.replace(/\/+$/, '');
+}
+
+function buildFfmpegOutputUrl(rtmpUrl, streamKey) {
+  const key = String(streamKey || '').trim();
+  if (key.startsWith('rtmp://') || key.startsWith('rtmps://')) {
+    return key;
+  }
+
+  const base = sanitizeRtmpBaseUrl(rtmpUrl)
+    .replace('rtmp://a.rtmp.youtube.com/live2', DEFAULT_YOUTUBE_INGEST_URL)
+    .replace('rtmps://a.rtmp.youtube.com/live2', DEFAULT_YOUTUBE_INGEST_URL)
+    .replace('rtmp://a.rtmps.youtube.com/live2', DEFAULT_YOUTUBE_INGEST_URL);
+
+  const cleanedKey = key.replace(/^\/+/, '');
+  return `${base}/${cleanedKey}`;
+}
+
 // Ensure db directory exists
 const isDockerOrCloud = fs.existsSync('/app');
 const dbDir = process.env.DATA_DIR || (isDockerOrCloud ? '/app/data' : path.join(process.cwd(), 'data'));
@@ -551,11 +575,9 @@ app.prepare().then(async () => {
 
   function startStream(stream) {
     const { id, user_id, video_path, rtmp_url, stream_key, broadcast_id } = stream;
-    // Ensure URL ends with / if needed, though usually it's just concatenated
-    const separator = rtmp_url.endsWith('/') ? '' : '/';
-    const fullRtmpUrl = `${rtmp_url}${separator}${stream_key}`;
-    
-    console.log(`Starting stream ${id} to ${rtmp_url}`);
+    const fullRtmpUrl = buildFfmpegOutputUrl(rtmp_url, stream_key);
+
+    console.log(`Starting stream ${id} to ${fullRtmpUrl}`);
     
     db.execute({
       sql: "UPDATE streams SET status = 'streaming' WHERE id = ?",
