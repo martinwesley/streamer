@@ -402,7 +402,6 @@ app.prepare().then(async () => {
         si.fsSize(),
         si.networkStats()
       ]);
-      console.log('networkStats:', JSON.stringify(networkStats, null, 2));
 
       let rx_sec = 0;
       let tx_sec = 0;
@@ -559,7 +558,6 @@ app.prepare().then(async () => {
 
   function startStream(stream) {
     const { id, user_id, video_path, rtmp_url, stream_key, broadcast_id } = stream;
-    // Ensure URL ends with / if needed, though usually it's just concatenated
     const separator = rtmp_url.endsWith('/') ? '' : '/';
     const fullRtmpUrl = `${rtmp_url}${separator}${stream_key}`;
     
@@ -570,23 +568,16 @@ app.prepare().then(async () => {
       args: [id]
     });
 
-    const probeRes = spawnSync(ffmpegPath, ['-i', video_path]);
-    const hasAudio = probeRes.stderr.toString().includes('Audio:');
+    // Check for audio using ffprobe
+    const probe = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=codec_type', '-of', 'default=noprint_wrappers=1:nokey=1', video_path]);
+    const hasAudio = probe.stdout.toString().includes('audio');
     
     const args = [
-      '-v', 'debug',
+      '-re',
+      '-i', video_path,
+      '-v', 'info',
       '-use_ipv4', '1',
       '-protocol_whitelist', 'file,rtmp,tcp,udp,crypto,tls',
-      '-re',
-      '-i', video_path
-    ];
-
-    if (!hasAudio) {
-      args.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100');
-    }
-
-    args.push(
-      '-vf', 'tpad=stop_mode=clone:stop_duration=5',
       '-c:v', 'libx264',
       '-preset', 'veryfast',
       '-b:v', '3000k',
@@ -597,14 +588,19 @@ app.prepare().then(async () => {
       '-c:a', 'aac',
       '-b:a', '160k',
       '-ac', '2',
-      '-ar', '44100'
-    );
+      '-ar', '44100',
+      '-f', 'flv',
+      '-rtmp_live', 'live',
+      '-reconnect', '1',
+      '-reconnect_at_eof', '1',
+      '-reconnect_streamed', '1',
+      '-reconnect_delay_max', '5',
+      fullRtmpUrl
+    ];
 
     if (!hasAudio) {
-      args.push('-map', '0:v:0', '-map', '1:a:0', '-shortest');
+      args.splice(2, 0, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100');
     }
-
-    args.push('-f', 'flv', fullRtmpUrl);
 
     const ffmpeg = spawn(ffmpegPath, args, { env: process.env });
 
