@@ -37,7 +37,7 @@ export default function Dashboard() {
   
   // Stream state
   const [selectedVideo, setSelectedVideo] = useState("");
-  const [rtmpUrl, setRtmpUrl] = useState("rtmp://a.rtmp.youtube.com/live2");
+  const [rtmpUrl, setRtmpUrl] = useState("rtmps://a.rtmps.youtube.com/live2");
   const [streamKey, setStreamKey] = useState("");
   const [broadcastId, setBroadcastId] = useState("");
   const [scheduledFor, setScheduledFor] = useState("");
@@ -48,7 +48,7 @@ export default function Dashboard() {
   // Saved Keys state
   const [savedKeys, setSavedKeys] = useState<any[]>([]);
   const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyRtmp, setNewKeyRtmp] = useState("rtmp://a.rtmp.youtube.com/live2");
+  const [newKeyRtmp, setNewKeyRtmp] = useState("rtmps://a.rtmps.youtube.com/live2");
   const [newKeyStream, setNewKeyStream] = useState("");
   const [savingKey, setSavingKey] = useState(false);
 
@@ -436,7 +436,7 @@ export default function Dashboard() {
                   <Input 
                     value={rtmpUrl} 
                     onChange={e => setRtmpUrl(e.target.value)} 
-                    placeholder="rtmp://a.rtmp.youtube.com/live2" 
+                    placeholder="rtmps://a.rtmps.youtube.com/live2" 
                     required 
                   />
                 </div>
@@ -679,7 +679,7 @@ export default function Dashboard() {
                   <Input 
                     value={newKeyRtmp} 
                     onChange={e => setNewKeyRtmp(e.target.value)} 
-                    placeholder="rtmp://a.rtmp.youtube.com/live2" 
+                    placeholder="rtmps://a.rtmps.youtube.com/live2" 
                     required 
                   />
                 </div>
