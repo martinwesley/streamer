@@ -576,7 +576,6 @@ app.prepare().then(async () => {
       '-re',
       '-i', video_path,
       '-v', 'info',
-      '-use_ipv4', '1',
       '-protocol_whitelist', 'file,rtmp,tcp,udp,crypto,tls',
       '-c:v', 'libx264',
       '-preset', 'veryfast',
