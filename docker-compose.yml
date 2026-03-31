@@ -4,8 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: streamscheduler
-    ports:
-      - "7575:7575"
+    #ports:
+      #- "7575:7575"
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads
