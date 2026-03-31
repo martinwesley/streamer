@@ -22,7 +22,7 @@ VOLUME ["/app/data", "/app/uploads"]
 
 # Expose the requested port
 ENV PORT=7575
-EXPOSE 7575
+#EXPOSE 7575
 
 # Start the custom server
 CMD ["npm", "start"]
