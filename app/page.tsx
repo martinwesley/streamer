@@ -12,12 +12,15 @@ import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import { Folder, Activity, HardDrive, Cpu, Network } from "lucide-react";
+import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Video, Key, Calendar, LayoutDashboard, LogOut, Youtube } from "lucide-react";
 import axios from "axios";
+import { motion, AnimatePresence } from "motion/react";
 
 export default function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [videos, setVideos] = useState<any[]>([]);
   const [streams, setStreams] = useState<any[]>([]);
   
@@ -350,459 +353,624 @@ export default function Dashboard() {
     }
   };
 
-  if (!user) return <div className="p-8 text-center">Loading...</div>;
+  if (!user) return <div className="min-h-screen flex items-center justify-center bg-background text-foreground"><div className="animate-pulse flex flex-col items-center"><Activity className="w-12 h-12 text-primary mb-4" /><span>Loading...</span></div></div>;
 
-  return (
-    <div className="container mx-auto p-6 max-w-6xl">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">StreamScheduler</h1>
-        <div className="flex items-center gap-4">
-          <span className="text-muted-foreground">Welcome, {user.username}</span>
+  const SidebarContent = () => (
+    <div className="flex flex-col h-full">
+      <div className="p-6 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center text-primary">
+          <Activity className="w-6 h-6" />
+        </div>
+        <h1 className="text-2xl font-bold tracking-tight text-white">Stream<span className="text-primary">Scheduler</span></h1>
+      </div>
+      
+      <div className="px-4 py-2">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4 px-2">Menu</div>
+        <nav className="space-y-1">
+          {[
+            { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+            { id: "streams", label: "Streams", icon: Calendar },
+            { id: "videos", label: "Videos", icon: Video },
+            { id: "keys", label: "Stream Keys", icon: Key },
+          ].map((item) => (
+            <button
+              key={item.id}
+              onClick={() => { setActiveTab(item.id); setIsSidebarOpen(false); }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
+                activeTab === item.id 
+                  ? "bg-primary/10 text-primary font-medium" 
+                  : "text-muted-foreground hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              <item.icon className={`w-5 h-5 ${activeTab === item.id ? "text-primary" : ""}`} />
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      <div className="mt-auto p-4">
+        <div className="glass rounded-2xl p-4 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white font-bold">
+              {user.username.charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-white truncate">{user.username}</p>
+              <p className="text-xs text-muted-foreground truncate">
+                {user.youtube_tokens ? <span className="text-green-400">YouTube Connected</span> : <span className="text-red-400">Not Connected</span>}
+              </p>
+            </div>
+          </div>
+          
           {!user.youtube_tokens && (
-            <Button variant="outline" onClick={handleConnectYouTube} className="border-red-500 text-red-500 hover:bg-red-500/10">
-              Connect YouTube
+            <Button variant="outline" size="sm" onClick={handleConnectYouTube} className="w-full border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300">
+              <Youtube className="w-4 h-4 mr-2" /> Connect YouTube
             </Button>
           )}
-          {user.youtube_tokens && (
-            <span className="text-xs text-green-500 font-medium px-2 py-1 bg-green-500/10 rounded">YouTube Connected</span>
-          )}
-          <Button variant="outline" onClick={handleLogout}>Logout</Button>
+          
+          <Button variant="ghost" size="sm" onClick={handleLogout} className="w-full text-muted-foreground hover:text-white hover:bg-white/5">
+            <LogOut className="w-4 h-4 mr-2" /> Logout
+          </Button>
         </div>
       </div>
+    </div>
+  );
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-3">
-          <Tabs defaultValue="streams" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="streams">Scheduled Streams</TabsTrigger>
-          <TabsTrigger value="videos">My Videos</TabsTrigger>
-          <TabsTrigger value="keys">Stream Keys</TabsTrigger>
-        </TabsList>
+  return (
+    <div className="min-h-screen bg-background text-foreground flex overflow-hidden selection:bg-primary/30">
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
 
-        <TabsContent value="streams" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Schedule New Stream</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSchedule} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2 md:col-span-2">
-                  <Label>Use Saved Stream Key (Optional)</Label>
-                  <Select value={selectedSavedKey || undefined} onValueChange={(val) => {
-                    setSelectedSavedKey(val || "");
-                    if (val) {
-                      const key = savedKeys.find(k => k.id.toString() === val);
-                      if (key) {
-                        setRtmpUrl(key.rtmp_url);
-                        setStreamKey(key.stream_key);
-                      }
-                    }
-                  }}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a saved key to auto-fill">
-                        {selectedSavedKey ? (savedKeys.find(k => k.id.toString() === selectedSavedKey)?.name || "Unknown Key") : "Select a saved key to auto-fill"}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {savedKeys.map(k => (
-                        <SelectItem key={k.id} value={k.id.toString()}>{k.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Select Video</Label>
-                  <Select value={selectedVideo || undefined} onValueChange={(val) => setSelectedVideo(val || "")}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a video">
-                        {selectedVideo ? (videos.find(v => v.id.toString() === selectedVideo)?.original_name || "Unknown Video") : "Select a video"}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {videos.map(v => (
-                        <SelectItem key={v.id} value={v.id.toString()}>{v.original_name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>RTMP URL</Label>
-                  <Input 
-                    value={rtmpUrl} 
-                    onChange={e => setRtmpUrl(e.target.value)} 
-                    placeholder="rtmp://a.rtmp.youtube.com/live2" 
-                    required 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Stream Key</Label>
-                  <Input 
-                    type="password"
-                    value={streamKey} 
-                    onChange={e => setStreamKey(e.target.value)} 
-                    placeholder="xxxx-xxxx-xxxx-xxxx" 
-                    required 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Broadcast ID (Optional - for YouTube API)</Label>
-                  {user.youtube_tokens ? (
-                    <Select value={broadcastId || undefined} onValueChange={(val) => setBroadcastId(val === "none" ? "" : (val || ""))}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a YouTube Broadcast">
-                          {broadcastId ? (broadcasts.find(b => b.id === broadcastId)?.title || "Unknown Broadcast") : "Select a YouTube Broadcast"}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        {broadcasts.map(b => (
-                          <SelectItem key={b.id} value={b.id}>{b.title} ({b.status})</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input 
-                      value={broadcastId} 
-                      onChange={e => setBroadcastId(e.target.value)} 
-                      placeholder="Connect YouTube to select broadcast" 
-                      disabled
-                    />
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label>Schedule Time</Label>
-                  <Input 
-                    type="datetime-local" 
-                    value={scheduledFor} 
-                    onChange={e => setScheduledFor(e.target.value)} 
-                    required 
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <Button type="submit" disabled={scheduling} className="w-full">
-                    {scheduling ? "Scheduling..." : "Schedule Stream"}
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
+      {/* Sidebar */}
+      <motion.aside
+        className={`fixed inset-y-0 left-0 z-50 w-72 glass border-r border-white/5 transform lg:translate-x-0 lg:static lg:block transition-transform duration-300 ease-in-out ${
+          isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <SidebarContent />
+      </motion.aside>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Your Streams</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Video</TableHead>
-                    <TableHead>Scheduled For</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Created At</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {streams.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center text-muted-foreground">No streams scheduled</TableCell>
-                    </TableRow>
-                  ) : (
-                    streams.map(s => (
-                      <TableRow key={s.id}>
-                        <TableCell className="font-medium">{s.video_name}</TableCell>
-                        <TableCell>{s.scheduled_for.replace('T', ' ')}</TableCell>
-                        <TableCell>
-                          <span className={`px-2 py-1 rounded-full text-xs font-semibold
-                            ${s.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : ''}
-                            ${s.status === 'streaming' ? 'bg-blue-100 text-blue-800 animate-pulse' : ''}
-                            ${s.status === 'completed' ? 'bg-green-100 text-green-800' : ''}
-                            ${s.status === 'failed' ? 'bg-red-100 text-red-800' : ''}
-                          `}>
-                            {s.status.toUpperCase()}
-                          </span>
-                        </TableCell>
-                        <TableCell>{new Date(s.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
-                        <TableCell>
-                          <Button variant="destructive" size="sm" onClick={() => handleDeleteStream(s.id)}>Delete</Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="videos" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Upload Video</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleUpload} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Select File</Label>
-                    <div 
-                      className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 hover:bg-gray-50 transition-colors cursor-pointer" 
-                      onClick={() => document.getElementById('file-upload')?.click()}
-                    >
-                      <Folder className="w-12 h-12 text-gray-400 mb-2" />
-                      <span className="text-sm text-muted-foreground text-center">
-                        {file ? file.name : "Click to select a video file"}
-                      </span>
-                      <Input 
-                        id="file-upload"
-                        type="file" 
-                        accept="video/*" 
-                        onChange={e => setFile(e.target.files?.[0] || null)} 
-                        className="hidden"
-                        required 
-                      />
-                    </div>
-                  </div>
-                  <Button type="submit" disabled={uploading || !file} className="w-full">
-                    {uploading ? "Uploading..." : "Upload Video"}
-                  </Button>
-                  {uploading && (
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Uploading...</span>
-                        <span>{uploadProgress}%</span>
-                      </div>
-                      <Progress value={uploadProgress} className="h-2" />
-                    </div>
-                  )}
-                </form>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Import from URL (e.g. Google Drive)</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleImport} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Direct Download URL</Label>
-                    <Input 
-                      type="url" 
-                      value={importUrl} 
-                      onChange={e => setImportUrl(e.target.value)} 
-                      placeholder="https://..." 
-                      required 
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      For Google Drive, use a direct download link format.
-                    </p>
-                  </div>
-                  <Button type="submit" disabled={importing || !importUrl} className="w-full">
-                    {importing ? "Importing..." : "Import Video"}
-                  </Button>
-                  {importing && (
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Importing...</span>
-                        <span>{importProgress}%</span>
-                      </div>
-                      <Progress value={importProgress} className="h-2" />
-                    </div>
-                  )}
-                </form>
-              </CardContent>
-            </Card>
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
+        {/* Mobile Header */}
+        <header className="lg:hidden flex items-center justify-between p-4 glass border-b border-white/5 z-30">
+          <div className="flex items-center gap-2">
+            <Activity className="w-6 h-6 text-primary" />
+            <span className="font-bold text-white">StreamScheduler</span>
           </div>
+          <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-muted-foreground hover:text-white">
+            <Menu className="w-6 h-6" />
+          </button>
+        </header>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Uploaded Videos</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Filename</TableHead>
-                    <TableHead>Size</TableHead>
-                    <TableHead>Uploaded At</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {videos.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground">No videos uploaded</TableCell>
-                    </TableRow>
-                  ) : (
-                    videos.map(v => (
-                      <TableRow key={v.id}>
-                        <TableCell className="font-medium">{v.original_name}</TableCell>
-                        <TableCell>{(v.size / (1024 * 1024)).toFixed(2)} MB</TableCell>
-                        <TableCell>{new Date(v.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
-                        <TableCell>
-                          <Button variant="destructive" size="sm" onClick={() => handleDeleteVideo(v.id)}>Delete</Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="keys" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Save New Stream Key</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSaveKey} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label>Name (e.g. YouTube Main)</Label>
-                  <Input 
-                    value={newKeyName} 
-                    onChange={e => setNewKeyName(e.target.value)} 
-                    placeholder="My Channel" 
-                    required 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>RTMP URL</Label>
-                  <Input 
-                    value={newKeyRtmp} 
-                    onChange={e => setNewKeyRtmp(e.target.value)} 
-                    placeholder="rtmp://a.rtmp.youtube.com/live2" 
-                    required 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Stream Key</Label>
-                  <Input 
-                    type="password"
-                    value={newKeyStream} 
-                    onChange={e => setNewKeyStream(e.target.value)} 
-                    placeholder="xxxx-xxxx-xxxx-xxxx" 
-                    required 
-                  />
-                </div>
-                <div className="md:col-span-3">
-                  <Button type="submit" disabled={savingKey} className="w-full">
-                    {savingKey ? "Saving..." : "Save Key"}
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Saved Keys</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>RTMP URL</TableHead>
-                    <TableHead>Saved At</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {savedKeys.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground">No keys saved</TableCell>
-                    </TableRow>
-                  ) : (
-                    savedKeys.map(k => (
-                      <TableRow key={k.id}>
-                        <TableCell className="font-medium">{k.name}</TableCell>
-                        <TableCell>{k.rtmp_url}</TableCell>
-                        <TableCell>{new Date(k.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
-                        <TableCell>
-                          <Button variant="destructive" size="sm" onClick={() => handleDeleteKey(k.id)}>Delete</Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-        </div>
-
-        <div className="lg:col-span-1 space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Activity className="w-5 h-5" />
-                Server Status
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {serverStats ? (
-                <>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="flex items-center gap-2 text-muted-foreground"><Cpu className="w-4 h-4" /> CPU</span>
-                      <span className="font-medium">{serverStats.cpu.toFixed(1)}%</span>
-                    </div>
-                    <Progress value={serverStats.cpu} className="h-2" />
+        <div className="flex-1 overflow-y-auto p-4 lg:p-8 relative z-10">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.2 }}
+              className="max-w-6xl mx-auto space-y-8"
+            >
+              {activeTab === "dashboard" && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-3xl font-bold tracking-tight text-white">System Overview</h2>
                   </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <Card className="glass border-white/5">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                          <Cpu className="w-4 h-4 text-primary" /> CPU Usage
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold text-white">{serverStats?.cpu.toFixed(1) || 0}%</div>
+                        <Progress value={serverStats?.cpu || 0} className="h-1 mt-3 bg-white/10" />
+                      </CardContent>
+                    </Card>
+                    
+                    <Card className="glass border-white/5">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                          <HardDrive className="w-4 h-4 text-primary" /> Memory
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold text-white">
+                          {serverStats ? (serverStats.memory.used / (1024 * 1024 * 1024)).toFixed(1) : 0} <span className="text-sm text-muted-foreground font-normal">GB</span>
+                        </div>
+                        <Progress value={serverStats ? (serverStats.memory.used / serverStats.memory.total) * 100 : 0} className="h-1 mt-3 bg-white/10" />
+                      </CardContent>
+                    </Card>
 
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="flex items-center gap-2 text-muted-foreground"><HardDrive className="w-4 h-4" /> Memory</span>
-                      <span className="font-medium">
-                        {(serverStats.memory.used / (1024 * 1024 * 1024)).toFixed(1)}GB / {(serverStats.memory.total / (1024 * 1024 * 1024)).toFixed(1)}GB
-                      </span>
-                    </div>
-                    <Progress value={(serverStats.memory.used / serverStats.memory.total) * 100} className="h-2" />
-                  </div>
+                    <Card className="glass border-white/5">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                          <Folder className="w-4 h-4 text-primary" /> Storage
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold text-white">
+                          {serverStats ? (serverStats.disk.used / (1024 * 1024 * 1024)).toFixed(1) : 0} <span className="text-sm text-muted-foreground font-normal">GB</span>
+                        </div>
+                        <Progress value={serverStats ? (serverStats.disk.used / serverStats.disk.total) * 100 : 0} className="h-1 mt-3 bg-white/10" />
+                      </CardContent>
+                    </Card>
 
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="flex items-center gap-2 text-muted-foreground"><Folder className="w-4 h-4" /> Disk</span>
-                      <span className="font-medium">
-                        {(serverStats.disk.used / (1024 * 1024 * 1024)).toFixed(1)}GB / {(serverStats.disk.total / (1024 * 1024 * 1024)).toFixed(1)}GB
-                      </span>
-                    </div>
-                    <Progress value={(serverStats.disk.used / serverStats.disk.total) * 100} className="h-2" />
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="flex items-center gap-2 text-muted-foreground"><Network className="w-4 h-4" /> Network</span>
-                    </div>
-                    <div className="space-y-2">
-                      {serverStats.network.interfaces.map((net: any) => (
-                        <div key={net.iface} className="bg-muted p-2 rounded text-xs">
-                          <div className="flex justify-between">
-                            <span className="font-medium">{net.iface}</span>
-                            <span className={net.operstate === 'up' ? 'text-green-500' : 'text-red-500'}>{net.operstate}</span>
+                    <Card className="glass border-white/5">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                          <Network className="w-4 h-4 text-primary" /> Network
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex justify-between items-end">
+                          <div>
+                            <div className="text-xs text-muted-foreground mb-1">Download</div>
+                            <div className="text-lg font-bold text-green-400">{serverStats ? (serverStats.network.rx_sec / (1024 * 1024)).toFixed(2) : 0} <span className="text-xs font-normal">MB/s</span></div>
                           </div>
-                          <div className="flex justify-between text-muted-foreground">
-                            <span>Down: {(net.rx_sec / (1024 * 1024)).toFixed(2)} MB/s</span>
-                            <span>Up: {(net.tx_sec / (1024 * 1024)).toFixed(2)} MB/s</span>
+                          <div className="text-right">
+                            <div className="text-xs text-muted-foreground mb-1">Upload</div>
+                            <div className="text-lg font-bold text-blue-400">{serverStats ? (serverStats.network.tx_sec / (1024 * 1024)).toFixed(2) : 0} <span className="text-xs font-normal">MB/s</span></div>
                           </div>
                         </div>
-                      ))}
-                    </div>
+                      </CardContent>
+                    </Card>
                   </div>
-                </>
-              ) : (
-                <div className="text-center text-sm text-muted-foreground py-8">
-                  Loading stats...
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <Card className="glass border-white/5">
+                      <CardHeader>
+                        <CardTitle className="text-lg text-white">Active Streams</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          {streams.filter(s => s.status === 'streaming').length === 0 ? (
+                            <div className="text-center py-8 text-muted-foreground bg-white/5 rounded-xl border border-white/5">No active streams</div>
+                          ) : (
+                            streams.filter(s => s.status === 'streaming').map(s => (
+                              <div key={s.id} className="flex items-center justify-between p-4 bg-white/5 rounded-xl border border-white/5">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                                  <span className="font-medium text-white">{s.video_name}</span>
+                                </div>
+                                <span className="text-xs text-primary bg-primary/10 px-2 py-1 rounded-md">LIVE</span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="glass border-white/5">
+                      <CardHeader>
+                        <CardTitle className="text-lg text-white">Network Interfaces</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
+                          {serverStats?.network.interfaces.map((net: any) => (
+                            <div key={net.iface} className="p-3 bg-white/5 rounded-xl border border-white/5">
+                              <div className="flex justify-between items-center mb-2">
+                                <span className="font-medium text-white">{net.iface}</span>
+                                <span className={`text-xs px-2 py-1 rounded-md ${net.operstate === 'up' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>{net.operstate.toUpperCase()}</span>
+                              </div>
+                              <div className="flex justify-between text-xs text-muted-foreground">
+                                <span>↓ {(net.rx_sec / (1024 * 1024)).toFixed(2)} MB/s</span>
+                                <span>↑ {(net.tx_sec / (1024 * 1024)).toFixed(2)} MB/s</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
                 </div>
               )}
-            </CardContent>
-          </Card>
+
+              {activeTab === "streams" && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-3xl font-bold tracking-tight text-white">Streams</h2>
+                  </div>
+                  
+                  <Card className="glass border-white/5">
+                    <CardHeader>
+                      <CardTitle className="text-white">Schedule New Stream</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <form onSubmit={handleSchedule} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2 md:col-span-2">
+                          <Label className="text-white/80">Use Saved Stream Key (Optional)</Label>
+                          <Select value={selectedSavedKey || undefined} onValueChange={(val) => {
+                            setSelectedSavedKey(val || "");
+                            if (val) {
+                              const key = savedKeys.find(k => k.id.toString() === val);
+                              if (key) {
+                                setRtmpUrl(key.rtmp_url);
+                                setStreamKey(key.stream_key);
+                              }
+                            }
+                          }}>
+                            <SelectTrigger className="bg-black/50 border-white/10 text-white">
+                              <SelectValue placeholder="Select a saved key to auto-fill">
+                                {selectedSavedKey ? (savedKeys.find(k => k.id.toString() === selectedSavedKey)?.name || "Unknown Key") : "Select a saved key to auto-fill"}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent className="bg-background border-white/10">
+                              {savedKeys.map(k => (
+                                <SelectItem key={k.id} value={k.id.toString()}>{k.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-white/80">Select Video</Label>
+                          <Select value={selectedVideo || undefined} onValueChange={(val) => setSelectedVideo(val || "")}>
+                            <SelectTrigger className="bg-black/50 border-white/10 text-white">
+                              <SelectValue placeholder="Select a video">
+                                {selectedVideo ? (videos.find(v => v.id.toString() === selectedVideo)?.original_name || "Unknown Video") : "Select a video"}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent className="bg-background border-white/10">
+                              {videos.map(v => (
+                                <SelectItem key={v.id} value={v.id.toString()}>{v.original_name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-white/80">RTMP URL</Label>
+                          <Input 
+                            value={rtmpUrl} 
+                            onChange={e => setRtmpUrl(e.target.value)} 
+                            placeholder="rtmp://a.rtmp.youtube.com/live2" 
+                            required 
+                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-white/80">Stream Key</Label>
+                          <Input 
+                            type="password"
+                            value={streamKey} 
+                            onChange={e => setStreamKey(e.target.value)} 
+                            placeholder="xxxx-xxxx-xxxx-xxxx" 
+                            required 
+                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-white/80">Broadcast ID (Optional - for YouTube API)</Label>
+                          {user.youtube_tokens ? (
+                            <Select value={broadcastId || undefined} onValueChange={(val) => setBroadcastId(val === "none" ? "" : (val || ""))}>
+                              <SelectTrigger className="bg-black/50 border-white/10 text-white">
+                                <SelectValue placeholder="Select a YouTube Broadcast">
+                                  {broadcastId ? (broadcasts.find(b => b.id === broadcastId)?.title || "Unknown Broadcast") : "Select a YouTube Broadcast"}
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent className="bg-background border-white/10">
+                                <SelectItem value="none">None</SelectItem>
+                                {broadcasts.map(b => (
+                                  <SelectItem key={b.id} value={b.id}>{b.title} ({b.status})</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input 
+                              value={broadcastId} 
+                              onChange={e => setBroadcastId(e.target.value)} 
+                              placeholder="Connect YouTube to select broadcast" 
+                              disabled
+                              className="bg-black/50 border-white/10 text-white/50"
+                            />
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-white/80">Schedule Time</Label>
+                          <Input 
+                            type="datetime-local" 
+                            value={scheduledFor} 
+                            onChange={e => setScheduledFor(e.target.value)} 
+                            required 
+                            className="bg-black/50 border-white/10 text-white"
+                            style={{ colorScheme: 'dark' }}
+                          />
+                        </div>
+                        <div className="md:col-span-2 pt-2">
+                          <Button type="submit" disabled={scheduling} className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
+                            {scheduling ? "Scheduling..." : "Schedule Stream"}
+                          </Button>
+                        </div>
+                      </form>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="glass border-white/5">
+                    <CardHeader>
+                      <CardTitle className="text-white">Scheduled Streams</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="rounded-xl border border-white/10 overflow-hidden bg-black/20">
+                        <Table>
+                          <TableHeader className="bg-white/5">
+                            <TableRow className="border-white/10 hover:bg-transparent">
+                              <TableHead className="text-white/70">Video</TableHead>
+                              <TableHead className="text-white/70">Scheduled For</TableHead>
+                              <TableHead className="text-white/70">Status</TableHead>
+                              <TableHead className="text-white/70">Created At</TableHead>
+                              <TableHead className="text-right text-white/70">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {streams.length === 0 ? (
+                              <TableRow className="border-white/10 hover:bg-white/5">
+                                <TableCell colSpan={5} className="text-center text-muted-foreground py-8">No streams scheduled</TableCell>
+                              </TableRow>
+                            ) : (
+                              streams.map(s => (
+                                <TableRow key={s.id} className="border-white/10 hover:bg-white/5">
+                                  <TableCell className="font-medium text-white">{s.video_name}</TableCell>
+                                  <TableCell className="text-white/80">{s.scheduled_for.replace('T', ' ')}</TableCell>
+                                  <TableCell>
+                                    <span className={`px-2.5 py-1 rounded-md text-xs font-medium border
+                                      ${s.status === 'pending' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' : ''}
+                                      ${s.status === 'streaming' ? 'bg-primary/10 text-primary border-primary/20 animate-pulse' : ''}
+                                      ${s.status === 'completed' ? 'bg-green-500/10 text-green-400 border-green-500/20' : ''}
+                                      ${s.status === 'failed' ? 'bg-red-500/10 text-red-400 border-red-500/20' : ''}
+                                    `}>
+                                      {s.status.toUpperCase()}
+                                    </span>
+                                  </TableCell>
+                                  <TableCell className="text-white/60 text-sm">{new Date(s.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
+                                  <TableCell className="text-right">
+                                    <Button variant="ghost" size="sm" onClick={() => handleDeleteStream(s.id)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10">Delete</Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeTab === "videos" && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-3xl font-bold tracking-tight text-white">Videos</h2>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <Card className="glass border-white/5">
+                      <CardHeader>
+                        <CardTitle className="text-white">Upload Video</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <form onSubmit={handleUpload} className="space-y-4">
+                          <div className="space-y-2">
+                            <Label className="text-white/80">Select File</Label>
+                            <div 
+                              className="flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-xl p-8 hover:bg-white/5 hover:border-primary/50 transition-all cursor-pointer bg-black/20" 
+                              onClick={() => document.getElementById('file-upload')?.click()}
+                            >
+                              <Folder className="w-12 h-12 text-white/40 mb-3" />
+                              <span className="text-sm text-white/70 text-center font-medium">
+                                {file ? file.name : "Click to select a video file"}
+                              </span>
+                              <Input 
+                                id="file-upload"
+                                type="file" 
+                                accept="video/*" 
+                                onChange={e => setFile(e.target.files?.[0] || null)} 
+                                className="hidden"
+                                required 
+                              />
+                            </div>
+                          </div>
+                          <Button type="submit" disabled={uploading || !file} className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
+                            {uploading ? "Uploading..." : "Upload Video"}
+                          </Button>
+                          {uploading && (
+                            <div className="space-y-2 pt-2">
+                              <div className="flex justify-between text-xs text-white/70 font-medium">
+                                <span>Uploading...</span>
+                                <span>{uploadProgress}%</span>
+                              </div>
+                              <Progress value={uploadProgress} className="h-1.5 bg-white/10" />
+                            </div>
+                          )}
+                        </form>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="glass border-white/5">
+                      <CardHeader>
+                        <CardTitle className="text-white">Import from URL</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <form onSubmit={handleImport} className="space-y-4">
+                          <div className="space-y-2">
+                            <Label className="text-white/80">Direct Download URL</Label>
+                            <Input 
+                              type="url" 
+                              value={importUrl} 
+                              onChange={e => setImportUrl(e.target.value)} 
+                              placeholder="https://..." 
+                              required 
+                              className="bg-black/50 border-white/10 text-white placeholder:text-white/30"
+                            />
+                            <p className="text-xs text-white/50">
+                              For Google Drive, use a direct download link format.
+                            </p>
+                          </div>
+                          <Button type="submit" disabled={importing || !importUrl} className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
+                            {importing ? "Importing..." : "Import Video"}
+                          </Button>
+                          {importing && (
+                            <div className="space-y-2 pt-2">
+                              <div className="flex justify-between text-xs text-white/70 font-medium">
+                                <span>Importing...</span>
+                                <span>{importProgress}%</span>
+                              </div>
+                              <Progress value={importProgress} className="h-1.5 bg-white/10" />
+                            </div>
+                          )}
+                        </form>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <Card className="glass border-white/5">
+                    <CardHeader>
+                      <CardTitle className="text-white">Uploaded Videos</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="rounded-xl border border-white/10 overflow-hidden bg-black/20">
+                        <Table>
+                          <TableHeader className="bg-white/5">
+                            <TableRow className="border-white/10 hover:bg-transparent">
+                              <TableHead className="text-white/70">Filename</TableHead>
+                              <TableHead className="text-white/70">Size</TableHead>
+                              <TableHead className="text-white/70">Uploaded At</TableHead>
+                              <TableHead className="text-right text-white/70">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {videos.length === 0 ? (
+                              <TableRow className="border-white/10 hover:bg-white/5">
+                                <TableCell colSpan={4} className="text-center text-muted-foreground py-8">No videos uploaded</TableCell>
+                              </TableRow>
+                            ) : (
+                              videos.map(v => (
+                                <TableRow key={v.id} className="border-white/10 hover:bg-white/5">
+                                  <TableCell className="font-medium text-white">{v.original_name}</TableCell>
+                                  <TableCell className="text-white/80">{(v.size / (1024 * 1024)).toFixed(2)} MB</TableCell>
+                                  <TableCell className="text-white/60 text-sm">{new Date(v.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
+                                  <TableCell className="text-right">
+                                    <Button variant="ghost" size="sm" onClick={() => handleDeleteVideo(v.id)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10">Delete</Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeTab === "keys" && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-3xl font-bold tracking-tight text-white">Stream Keys</h2>
+                  </div>
+                  
+                  <Card className="glass border-white/5">
+                    <CardHeader>
+                      <CardTitle className="text-white">Save New Stream Key</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <form onSubmit={handleSaveKey} className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="space-y-2">
+                          <Label className="text-white/80">Name (e.g. YouTube Main)</Label>
+                          <Input 
+                            value={newKeyName} 
+                            onChange={e => setNewKeyName(e.target.value)} 
+                            placeholder="My Channel" 
+                            required 
+                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-white/80">RTMP URL</Label>
+                          <Input 
+                            value={newKeyRtmp} 
+                            onChange={e => setNewKeyRtmp(e.target.value)} 
+                            placeholder="rtmp://a.rtmp.youtube.com/live2" 
+                            required 
+                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-white/80">Stream Key</Label>
+                          <Input 
+                            type="password"
+                            value={newKeyStream} 
+                            onChange={e => setNewKeyStream(e.target.value)} 
+                            placeholder="xxxx-xxxx-xxxx-xxxx" 
+                            required 
+                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30"
+                          />
+                        </div>
+                        <div className="md:col-span-3 pt-2">
+                          <Button type="submit" disabled={savingKey} className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
+                            {savingKey ? "Saving..." : "Save Key"}
+                          </Button>
+                        </div>
+                      </form>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="glass border-white/5">
+                    <CardHeader>
+                      <CardTitle className="text-white">Saved Keys</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="rounded-xl border border-white/10 overflow-hidden bg-black/20">
+                        <Table>
+                          <TableHeader className="bg-white/5">
+                            <TableRow className="border-white/10 hover:bg-transparent">
+                              <TableHead className="text-white/70">Name</TableHead>
+                              <TableHead className="text-white/70">RTMP URL</TableHead>
+                              <TableHead className="text-white/70">Saved At</TableHead>
+                              <TableHead className="text-right text-white/70">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {savedKeys.length === 0 ? (
+                              <TableRow className="border-white/10 hover:bg-white/5">
+                                <TableCell colSpan={4} className="text-center text-muted-foreground py-8">No keys saved</TableCell>
+                              </TableRow>
+                            ) : (
+                              savedKeys.map(k => (
+                                <TableRow key={k.id} className="border-white/10 hover:bg-white/5">
+                                  <TableCell className="font-medium text-white">{k.name}</TableCell>
+                                  <TableCell className="text-white/80 font-mono text-sm">{k.rtmp_url}</TableCell>
+                                  <TableCell className="text-white/60 text-sm">{new Date(k.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
+                                  <TableCell className="text-right">
+                                    <Button variant="ghost" size="sm" onClick={() => handleDeleteKey(k.id)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10">Delete</Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </motion.div>
+          </AnimatePresence>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
