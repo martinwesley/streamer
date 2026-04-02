@@ -22,14 +22,13 @@ const handle = app.getRequestHandler();
 const port = process.env.PORT || 7575;
 
 // Ensure db directory exists
-const isDockerOrCloud = fs.existsSync('/app');
-const dbDir = process.env.DATA_DIR || (isDockerOrCloud ? '/app/data' : path.join(process.cwd(), 'data'));
+const dbDir = path.join(process.cwd(), 'data');
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
 
 // Ensure uploads directory exists inside the persistent data volume
-const uploadsDir = process.env.UPLOADS_DIR || (isDockerOrCloud ? '/app/uploads' : path.join(process.cwd(), 'uploads'));
+const uploadsDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -335,7 +334,30 @@ app.prepare().then(async () => {
       const filename = Date.now() + '-imported.mp4';
       const destPath = path.join(uploadsDir, filename);
       
-      const response = await fetch(url);
+      let downloadUrl = url;
+      const gdriveMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+      if (gdriveMatch && gdriveMatch[1]) {
+        downloadUrl = `https://drive.google.com/uc?export=download&id=${gdriveMatch[1]}`;
+      } else if (url.includes('drive.google.com/open?id=')) {
+        const id = new URL(url).searchParams.get('id');
+        if (id) downloadUrl = `https://drive.google.com/uc?export=download&id=${id}`;
+      }
+
+      let response = await fetch(downloadUrl);
+      
+      // Check if it's a Google Drive virus scan warning page
+      if (response.ok && response.headers.get('content-type')?.includes('text/html')) {
+        const text = await response.text();
+        const confirmMatch = text.match(/confirm=([a-zA-Z0-9_-]+)/);
+        if (confirmMatch && confirmMatch[1]) {
+          const confirmUrl = `${downloadUrl}&confirm=${confirmMatch[1]}`;
+          response = await fetch(confirmUrl);
+        } else {
+          // Re-fetch because we consumed the body
+          response = await fetch(downloadUrl);
+        }
+      }
+
       if (!response.ok) {
         importProgressMap.set(importId, { progress: 0, status: 'failed', error: 'Failed to download file' });
         return;
@@ -395,21 +417,57 @@ app.prepare().then(async () => {
     res.json(data);
   });
 
+let lastNetworkStats = null;
+let lastNetworkTime = null;
+
+async function getNetworkStats() {
+  try {
+    const data = fs.readFileSync('/proc/net/dev', 'utf8');
+    const lines = data.split('\n').slice(2);
+    let rx_bytes = 0;
+    let tx_bytes = 0;
+    
+    lines.forEach(line => {
+      const parts = line.trim().split(/\s+/).filter(Boolean);
+      if (parts.length >= 10 && !parts[0].startsWith('lo')) {
+        rx_bytes += parseInt(parts[1], 10);
+        tx_bytes += parseInt(parts[9], 10);
+      }
+    });
+
+    const now = Date.now();
+    let rx_sec = 0;
+    let tx_sec = 0;
+
+    if (lastNetworkStats && lastNetworkTime) {
+      const timeDiff = (now - lastNetworkTime) / 1000;
+      if (timeDiff > 0) {
+        rx_sec = (rx_bytes - lastNetworkStats.rx_bytes) / timeDiff;
+        tx_sec = (tx_bytes - lastNetworkStats.tx_bytes) / timeDiff;
+      }
+    }
+
+    lastNetworkStats = { rx_bytes, tx_bytes };
+    lastNetworkTime = now;
+
+    return {
+      rx_sec: Math.max(0, rx_sec),
+      tx_sec: Math.max(0, tx_sec),
+      interfaces: [{ iface: 'eth', operstate: 'up', rx_sec: Math.max(0, rx_sec), tx_sec: Math.max(0, tx_sec) }]
+    };
+  } catch (e) {
+    return { rx_sec: 0, tx_sec: 0, interfaces: [] };
+  }
+}
+
   server.get('/api/system-stats', authenticateToken, async (req, res) => {
     try {
-      const [cpu, mem, fsSize, networkStats] = await Promise.all([
+      const [cpu, mem, fsSize, network] = await Promise.all([
         si.currentLoad(),
         si.mem(),
         si.fsSize(),
-        si.networkStats()
+        getNetworkStats()
       ]);
-
-      let rx_sec = 0;
-      let tx_sec = 0;
-      networkStats.forEach(net => {
-        rx_sec += net.rx_sec;
-        tx_sec += net.tx_sec;
-      });
 
       const mainFs = fsSize.find(fs => fs.mount === '/') || fsSize[0];
 
@@ -423,17 +481,7 @@ app.prepare().then(async () => {
           used: mainFs ? mainFs.used : 0,
           total: mainFs ? mainFs.size : 0
         },
-        network: {
-          rx_sec,
-          tx_sec,
-          interfaces: networkStats.map(net => ({
-            iface: net.iface,
-            operstate: net.operstate,
-            rx_sec: net.rx_sec,
-            tx_sec: net.tx_sec,
-            speed: net.speed
-          }))
-        }
+        network
       });
     } catch (error) {
       res.status(500).json({ error: 'Failed to fetch system stats' });
