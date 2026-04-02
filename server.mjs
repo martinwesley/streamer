@@ -1,5 +1,6 @@
 import express from 'express';
 import next from 'next';
+import dns from 'dns';
 import { createClient } from '@libsql/client';
 import cron from 'node-cron';
 import { spawn, spawnSync } from 'child_process';
@@ -549,19 +550,29 @@ app.prepare().then(async () => {
       });
 
       for (const row of result.rows) {
-        startStream(row);
+        await startStream(row);
       }
     } catch (err) {
       console.error('Error checking streams:', err);
     }
   });
 
-  function startStream(stream) {
+  async function startStream(stream) {
     const { id, user_id, video_path, rtmp_url, stream_key, broadcast_id } = stream;
     const separator = rtmp_url.endsWith('/') ? '' : '/';
-    const fullRtmpUrl = `${rtmp_url}${separator}${stream_key}`;
+    let fullRtmpUrl = `${rtmp_url}${separator}${stream_key}`;
     
-    console.log(`Starting stream ${id} to ${rtmp_url}`);
+    try {
+      const url = new URL(rtmp_url);
+      const addresses = await dns.promises.lookup(url.hostname);
+      url.hostname = addresses.address;
+      fullRtmpUrl = `${url.toString()}${separator}${stream_key}`;
+      console.log(`Resolved ${rtmp_url} to ${url.hostname}`);
+    } catch (err) {
+      console.error(`Failed to resolve hostname for ${rtmp_url}, using original:`, err);
+    }
+    
+    console.log(`Starting stream ${id} to ${fullRtmpUrl}`);
     
     db.execute({
       sql: "UPDATE streams SET status = 'streaming' WHERE id = ?",
