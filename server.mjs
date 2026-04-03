@@ -706,7 +706,7 @@ async function getNetworkStats() {
       '-v', 'info',
       '-protocol_whitelist', 'file,rtmp,tcp,udp,crypto,tls',
       '-c:v', 'libx264',
-      '-preset', 'ultrafast',
+      '-preset', 'veryfast',
       '-b:v', '3000k',
       '-maxrate', '3000k',
       '-bufsize', '6000k',
