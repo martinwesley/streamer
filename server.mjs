@@ -152,6 +152,33 @@ async function authenticateToken(req, res, next) {
   }
 }
 
+function checkH264AAC(filePath) {
+  try {
+    const probeVideo = spawnSync('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=codec_name',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      filePath
+    ]);
+    const videoCodec = probeVideo.stdout.toString().trim();
+
+    const probeAudio = spawnSync('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'a:0',
+      '-show_entries', 'stream=codec_name',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      filePath
+    ]);
+    const audioCodec = probeAudio.stdout.toString().trim();
+
+    return videoCodec === 'h264' && audioCodec === 'aac';
+  } catch (err) {
+    console.error('Error checking video format:', err);
+    return false;
+  }
+}
+
 app.prepare().then(async () => {
   await initDb();
 
@@ -344,6 +371,11 @@ app.prepare().then(async () => {
   server.post('/api/videos/upload', authenticateToken, upload.single('video'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     
+    if (!checkH264AAC(req.file.path)) {
+      fs.unlink(req.file.path, () => {});
+      return res.status(400).json({ error: 'Please upload an H.264 + AAC encoded video file.' });
+    }
+
     try {
       const result = await db.execute({
         sql: 'INSERT INTO videos (user_id, filename, original_name, path, size) VALUES (?, ?, ?, ?, ?)',
@@ -449,6 +481,13 @@ app.prepare().then(async () => {
           await pipeline(nodeStream, progressStream, fileStream);
           
           const stats = fs.statSync(destPath);
+          
+          if (!checkH264AAC(destPath)) {
+            fs.unlink(destPath, () => {});
+            importProgressMap.set(importId, { progress: 0, status: 'failed', error: 'Please import an H.264 + AAC encoded video file.' });
+            return;
+          }
+
           const result = await db.execute({
             sql: 'INSERT INTO videos (user_id, filename, original_name, path, size) VALUES (?, ?, ?, ?, ?)',
             args: [req.user.id, filename, 'imported_video', destPath, stats.size]
@@ -719,26 +758,13 @@ async function getNetworkStats() {
       args: [id]
     });
 
-    // Check for audio using ffprobe
-    const probe = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=codec_type', '-of', 'default=noprint_wrappers=1:nokey=1', video_path]);
-    const hasAudio = probe.stdout.toString().includes('audio');
-    
     const args = [
       '-re',
       '-i', video_path,
       '-v', 'info',
       '-protocol_whitelist', 'file,rtmp,tcp,udp,crypto,tls',
-      '-c:v', 'libx264',
-      '-preset', 'veryfast',
-      '-b:v', '6000k',
-      '-maxrate', '6000k',
-      '-bufsize', '12000k',
-      '-pix_fmt', 'yuv420p',
-      '-g', '50',
-      '-c:a', 'aac',
-      '-b:a', '160k',
-      '-ac', '2',
-      '-ar', '44100',
+      '-c:v', 'copy',
+      '-c:a', 'copy',
       '-f', 'flv',
       '-rtmp_live', 'live',
       '-reconnect', '1',
@@ -747,10 +773,6 @@ async function getNetworkStats() {
       '-reconnect_delay_max', '5',
       fullRtmpUrl
     ];
-
-    if (!hasAudio) {
-      args.splice(2, 0, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100');
-    }
 
     const ffmpeg = spawn(ffmpegPath, args, { env: process.env });
     activeStreams.set(id, ffmpeg);
