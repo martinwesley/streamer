@@ -1,0 +1,6 @@
+data/
+uploads/
+.git/
+node_modules/
+.next/
+dist/
