@@ -660,7 +660,7 @@ export default function Dashboard() {
                             onChange={e => setRtmpUrl(e.target.value)} 
                             placeholder="rtmp://a.rtmp.youtube.com/live2" 
                             required 
-                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30"
+                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30 rounded-xl py-6"
                           />
                         </div>
                         <div className="space-y-2">
@@ -671,7 +671,7 @@ export default function Dashboard() {
                             onChange={e => setStreamKey(e.target.value)} 
                             placeholder="xxxx-xxxx-xxxx-xxxx" 
                             required 
-                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30"
+                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30 rounded-xl py-6"
                           />
                         </div>
                         <div className="space-y-2">
@@ -707,12 +707,12 @@ export default function Dashboard() {
                             value={scheduledFor} 
                             onChange={e => setScheduledFor(e.target.value)} 
                             required 
-                            className="bg-black/50 border-white/10 text-white"
+                            className="bg-black/50 border-white/10 text-white rounded-xl py-6"
                             style={{ colorScheme: 'dark' }}
                           />
                         </div>
                         <div className="md:col-span-2 pt-2">
-                          <Button type="submit" disabled={scheduling} className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
+                          <Button type="submit" disabled={scheduling} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 font-semibold">
                             {scheduling ? "Scheduling..." : "Schedule Stream"}
                           </Button>
                         </div>
@@ -782,7 +782,7 @@ export default function Dashboard() {
                   </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <Card className="glass border-white/5">
+                    <Card className="glass border-white/5 max-w-md mx-auto">
                       <CardHeader>
                         <CardTitle className="text-white">Upload Video</CardTitle>
                       </CardHeader>
@@ -808,7 +808,7 @@ export default function Dashboard() {
                               />
                             </div>
                           </div>
-                          <Button type="submit" disabled={uploading || !file} className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
+                          <Button type="submit" disabled={uploading || !file} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 font-semibold">
                             {uploading ? "Uploading..." : "Upload Video"}
                           </Button>
                           {uploading && (
@@ -824,7 +824,7 @@ export default function Dashboard() {
                       </CardContent>
                     </Card>
 
-                    <Card className="glass border-white/5">
+                    <Card className="glass border-white/5 max-w-md mx-auto">
                       <CardHeader>
                         <CardTitle className="text-white">Import from URL</CardTitle>
                       </CardHeader>
@@ -838,13 +838,13 @@ export default function Dashboard() {
                               onChange={e => setImportUrl(e.target.value)} 
                               placeholder="https://..." 
                               required 
-                              className="bg-black/50 border-white/10 text-white placeholder:text-white/30"
+                              className="bg-black/50 border-white/10 text-white placeholder:text-white/30 rounded-xl py-6"
                             />
                             <p className="text-xs text-white/50">
                               For Google Drive, use a direct download link format.
                             </p>
                           </div>
-                          <Button type="submit" disabled={importing || !importUrl} className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
+                          <Button type="submit" disabled={importing || !importUrl} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 font-semibold">
                             {importing ? "Importing..." : "Import Video"}
                           </Button>
                           {importing && (
@@ -931,7 +931,7 @@ export default function Dashboard() {
                             onChange={e => setNewKeyName(e.target.value)} 
                             placeholder="My Channel" 
                             required 
-                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30"
+                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30 rounded-xl py-6"
                           />
                         </div>
                         <div className="space-y-2">
@@ -941,7 +941,7 @@ export default function Dashboard() {
                             onChange={e => setNewKeyRtmp(e.target.value)} 
                             placeholder="rtmp://a.rtmp.youtube.com/live2" 
                             required 
-                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30"
+                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30 rounded-xl py-6"
                           />
                         </div>
                         <div className="space-y-2">
@@ -952,11 +952,11 @@ export default function Dashboard() {
                             onChange={e => setNewKeyStream(e.target.value)} 
                             placeholder="xxxx-xxxx-xxxx-xxxx" 
                             required 
-                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30"
+                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30 rounded-xl py-6"
                           />
                         </div>
                         <div className="md:col-span-3 pt-2">
-                          <Button type="submit" disabled={savingKey} className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
+                          <Button type="submit" disabled={savingKey} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 font-semibold">
                             {savingKey ? "Saving..." : "Save Key"}
                           </Button>
                         </div>

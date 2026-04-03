@@ -3,7 +3,7 @@ import next from 'next';
 import dns from 'dns';
 import { createClient } from '@libsql/client';
 import cron from 'node-cron';
-import { spawn, spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -150,6 +150,7 @@ async function authenticateToken(req, res, next) {
   } catch (err) {
     return res.status(403).json({ error: 'Forbidden' });
   }
+}
 
 app.prepare().then(async () => {
   await initDb();
@@ -448,6 +449,7 @@ app.prepare().then(async () => {
           await pipeline(nodeStream, progressStream, fileStream);
           
           const stats = fs.statSync(destPath);
+          
           const result = await db.execute({
             sql: 'INSERT INTO videos (user_id, filename, original_name, path, size) VALUES (?, ?, ?, ?, ?)',
             args: [req.user.id, filename, 'imported_video', destPath, stats.size]
