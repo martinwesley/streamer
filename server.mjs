@@ -37,12 +37,6 @@ const db = createClient({ url: `file:${path.join(dbDir, 'local.db')}` });
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'super-secret-key-change-in-prod');
 
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  `${process.env.APP_URL}/api/auth/youtube/callback`
-);
-
 async function initDb() {
   await db.execute(`
     CREATE TABLE IF NOT EXISTS users (
@@ -89,15 +83,18 @@ async function initDb() {
 
   const hash = await bcrypt.hash('prophet123', 10);
   try {
-    await db.execute({
-      sql: 'INSERT INTO users (id, username, password_hash) VALUES (1, ?, ?)',
-      args: ['martin', hash]
+    const userResult = await db.execute({
+      sql: 'SELECT * FROM users WHERE username = ?',
+      args: ['martin']
     });
+    if (userResult.rows.length === 0) {
+      await db.execute({
+        sql: 'INSERT INTO users (id, username, password_hash) VALUES (1, ?, ?)',
+        args: ['martin', hash]
+      });
+    }
   } catch (e) {
-    await db.execute({
-      sql: 'UPDATE users SET password_hash = ? WHERE username = ?',
-      args: [hash, 'martin']
-    });
+    console.error("Error initializing user:", e);
   }
 
   // Reset any streams that were interrupted by a server restart
@@ -189,7 +186,17 @@ app.prepare().then(async () => {
   });
 
   server.get('/api/auth/youtube/url', authenticateToken, (req, res) => {
-    const url = oauth2Client.generateAuthUrl({
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    const appUrl = process.env.APP_URL || `${protocol}://${host}`;
+    
+    const client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      `${appUrl}/api/auth/youtube/callback`
+    );
+
+    const url = client.generateAuthUrl({
       access_type: 'offline',
       scope: ['https://www.googleapis.com/auth/youtube.force-ssl'],
       prompt: 'consent'
@@ -197,19 +204,23 @@ app.prepare().then(async () => {
     res.json({ url });
   });
 
-  server.get('/api/auth/youtube/callback', async (req, res) => {
+  server.get('/api/auth/youtube/callback', authenticateToken, async (req, res) => {
     const { code } = req.query;
     try {
-      const { tokens } = await oauth2Client.getToken(code);
-      // We need to know which user this is.
-      // Since this is a popup, we can't easily get the user from the session if cookies are blocked.
-      // But in this app, we assume it's the current user.
-      // However, the callback is a separate request.
-      // Let's use a simple approach: store tokens in a temporary place or use a state parameter.
-      // For now, let's assume the user is 'martin' (id 1) as per the hardcoded logic.
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+      const host = req.headers['x-forwarded-host'] || req.headers.host;
+      const appUrl = process.env.APP_URL || `${protocol}://${host}`;
+      
+      const client = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        `${appUrl}/api/auth/youtube/callback`
+      );
+
+      const { tokens } = await client.getToken(code);
       await db.execute({
-        sql: 'UPDATE users SET youtube_tokens = ? WHERE id = 1',
-        args: [JSON.stringify(tokens)]
+        sql: 'UPDATE users SET youtube_tokens = ? WHERE id = ?',
+        args: [JSON.stringify(tokens), req.user.id]
       });
       res.send(`
         <html>
@@ -240,10 +251,14 @@ app.prepare().then(async () => {
       }
 
       const tokens = JSON.parse(tokensStr);
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+      const host = req.headers['x-forwarded-host'] || req.headers.host;
+      const appUrl = process.env.APP_URL || `${protocol}://${host}`;
+
       const auth = new google.auth.OAuth2(
         process.env.GOOGLE_CLIENT_ID,
         process.env.GOOGLE_CLIENT_SECRET,
-        `${process.env.APP_URL}/api/auth/youtube/callback`
+        `${appUrl}/api/auth/youtube/callback`
       );
       auth.setCredentials(tokens);
 
@@ -387,20 +402,28 @@ app.prepare().then(async () => {
       if (readableWebStream) {
         const nodeStream = Readable.fromWeb(readableWebStream);
         
-        nodeStream.on('data', (chunk) => {
-          downloadedBytes += chunk.length;
-          if (totalBytes > 0) {
-            const percent = Math.round((downloadedBytes / totalBytes) * 100);
-            importProgressMap.set(importId, { progress: percent, status: 'downloading' });
-          } else {
-            // Fake progress if no content length
-            const currentProgress = importProgressMap.get(importId)?.progress || 0;
-            importProgressMap.set(importId, { progress: Math.min(currentProgress + 1, 99), status: 'downloading' });
+        const { Transform } = await import('stream');
+        const progressStream = new Transform({
+          transform(chunk, encoding, callback) {
+            downloadedBytes += chunk.length;
+            if (totalBytes > 0) {
+              const percent = Math.round((downloadedBytes / totalBytes) * 100);
+              importProgressMap.set(importId, { progress: percent, status: 'downloading' });
+            } else {
+              // Fake progress if no content length
+              const currentProgress = importProgressMap.get(importId)?.progress || 0;
+              // Increment slowly
+              if (Math.random() < 0.1) {
+                importProgressMap.set(importId, { progress: Math.min(currentProgress + 1, 99), status: 'downloading' });
+              }
+            }
+            callback(null, chunk);
           }
         });
 
         try {
-          await pipeline(nodeStream, fileStream);
+          const { pipeline } = await import('stream/promises');
+          await pipeline(nodeStream, progressStream, fileStream);
           
           const stats = fs.statSync(destPath);
           const result = await db.execute({
@@ -443,10 +466,14 @@ async function getNetworkStats() {
     let tx_bytes = 0;
     
     lines.forEach(line => {
-      const parts = line.trim().split(/\s+/).filter(Boolean);
-      if (parts.length >= 10 && !parts[0].startsWith('lo')) {
-        rx_bytes += parseInt(parts[1], 10);
-        tx_bytes += parseInt(parts[9], 10);
+      const match = line.match(/^\s*([^:]+):\s*(.*)$/);
+      if (match) {
+        const iface = match[1].trim();
+        const stats = match[2].trim().split(/\s+/);
+        if (iface !== 'lo' && stats.length >= 8) {
+          rx_bytes += parseInt(stats[0], 10) || 0;
+          tx_bytes += parseInt(stats[8], 10) || 0;
+        }
       }
     });
 

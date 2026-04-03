@@ -491,7 +491,7 @@ export default function Dashboard() {
                       </CardHeader>
                       <CardContent>
                         <div className="text-2xl font-bold text-white">
-                          {serverStats ? (serverStats.memory.used / (1024 * 1024 * 1024)).toFixed(1) : 0} <span className="text-sm text-muted-foreground font-normal">GB</span>
+                          {serverStats ? (serverStats.memory.used / (1024 * 1024 * 1024)).toFixed(1) : 0} <span className="text-sm text-muted-foreground font-normal">/ {serverStats ? (serverStats.memory.total / (1024 * 1024 * 1024)).toFixed(1) : 0} GB</span>
                         </div>
                         <Progress value={serverStats ? (serverStats.memory.used / serverStats.memory.total) * 100 : 0} className="h-1 mt-3 bg-white/10" />
                       </CardContent>
@@ -505,7 +505,7 @@ export default function Dashboard() {
                       </CardHeader>
                       <CardContent>
                         <div className="text-2xl font-bold text-white">
-                          {serverStats ? (serverStats.disk.used / (1024 * 1024 * 1024)).toFixed(1) : 0} <span className="text-sm text-muted-foreground font-normal">GB</span>
+                          {serverStats ? (serverStats.disk.used / (1024 * 1024 * 1024)).toFixed(1) : 0} <span className="text-sm text-muted-foreground font-normal">/ {serverStats ? (serverStats.disk.total / (1024 * 1024 * 1024)).toFixed(1) : 0} GB</span>
                         </div>
                         <Progress value={serverStats ? (serverStats.disk.used / serverStats.disk.total) * 100 : 0} className="h-1 mt-3 bg-white/10" />
                       </CardContent>
