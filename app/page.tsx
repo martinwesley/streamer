@@ -57,10 +57,7 @@ export default function Dashboard() {
   useEffect(() => {
     fetchUser();
     fetchStats();
-    const streamsInterval = setInterval(() => {
-      fetchStreams();
-      fetchVideos();
-    }, 2000);
+    const streamsInterval = setInterval(fetchStreams, 2000);
 
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'YOUTUBE_AUTH_SUCCESS') {
@@ -646,9 +643,7 @@ export default function Dashboard() {
                             </SelectTrigger>
                             <SelectContent className="bg-background border-white/10">
                               {videos.map(v => (
-                                <SelectItem key={v.id} value={v.id.toString()}>
-                                  {v.original_name} {v.encoding_status === 'encoding' ? `(Encoding: ${v.encoding_progress}%)` : v.encoding_status === 'failed' ? '(Encoding Failed)' : ''}
-                                </SelectItem>
+                                <SelectItem key={v.id} value={v.id.toString()}>{v.original_name}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
@@ -884,18 +879,7 @@ export default function Dashboard() {
                             ) : (
                               videos.map(v => (
                                 <TableRow key={v.id} className="border-white/10 hover:bg-white/5">
-                                  <TableCell className="font-medium text-white">
-                                    {v.original_name}
-                                    {v.encoding_status === 'encoding' && (
-                                      <div className="mt-2">
-                                        <div className="text-xs text-muted-foreground mb-1">Encoding: {v.encoding_progress}%</div>
-                                        <Progress value={v.encoding_progress} className="h-1.5 bg-white/10" />
-                                      </div>
-                                    )}
-                                    {v.encoding_status === 'failed' && (
-                                      <div className="text-xs text-red-400 mt-1">Encoding failed</div>
-                                    )}
-                                  </TableCell>
+                                  <TableCell className="font-medium text-white">{v.original_name}</TableCell>
                                   <TableCell className="text-white/80">{(v.size / (1024 * 1024)).toFixed(2)} MB</TableCell>
                                   <TableCell className="text-white/60 text-sm">{new Date(v.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
                                   <TableCell className="text-right">

@@ -77,19 +77,9 @@ async function initDb() {
       original_name TEXT,
       path TEXT,
       size INTEGER,
-      encoding_status TEXT DEFAULT 'completed',
-      encoding_progress INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
-  
-  // Add columns if they don't exist (for existing databases)
-  try {
-    await db.execute(`ALTER TABLE videos ADD COLUMN encoding_status TEXT DEFAULT 'completed'`);
-  } catch (e) {}
-  try {
-    await db.execute(`ALTER TABLE videos ADD COLUMN encoding_progress INTEGER DEFAULT 0`);
-  } catch (e) {}
   await db.execute(`
     CREATE TABLE IF NOT EXISTS streams (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,94 +150,6 @@ async function authenticateToken(req, res, next) {
   } catch (err) {
     return res.status(403).json({ error: 'Forbidden' });
   }
-}
-
-// Video encoding function
-function encodeVideo(videoId, filePath) {
-  const tempPath = filePath + '.tmp.mp4';
-  
-  db.execute({
-    sql: 'UPDATE videos SET encoding_status = ?, encoding_progress = ? WHERE id = ?',
-    args: ['encoding', 0, videoId]
-  }).catch(console.error);
-
-  const probe = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=codec_type', '-of', 'default=noprint_wrappers=1:nokey=1', filePath]);
-  const hasAudio = probe.stdout?.toString().includes('audio');
-
-  const args = [];
-  if (!hasAudio) {
-    args.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100');
-  }
-  args.push('-i', filePath);
-  
-  if (!hasAudio) {
-    args.push('-shortest'); // Stop encoding when the shortest stream (video) ends
-    args.push('-map', '1:v', '-map', '0:a');
-  }
-
-  args.push(
-    '-c:v', 'libx264',
-    '-crf', '18',
-    '-g', '60',
-    '-c:a', 'aac',
-    '-b:a', '128k',
-    '-y',
-    tempPath
-  );
-
-  const ffmpegProcess = spawn(ffmpegPath, args);
-
-  let duration = 0;
-
-  ffmpegProcess.stderr.on('data', (data) => {
-    const output = data.toString();
-    const durationMatch = output.match(/Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})/);
-    if (durationMatch) {
-      const hours = parseInt(durationMatch[1], 10);
-      const minutes = parseInt(durationMatch[2], 10);
-      const seconds = parseFloat(durationMatch[3]);
-      duration = (hours * 3600) + (minutes * 60) + seconds;
-    }
-
-    const timeMatch = output.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/);
-    if (timeMatch && duration > 0) {
-      const hours = parseInt(timeMatch[1], 10);
-      const minutes = parseInt(timeMatch[2], 10);
-      const seconds = parseFloat(timeMatch[3]);
-      const currentTime = (hours * 3600) + (minutes * 60) + seconds;
-      const progress = Math.min(Math.round((currentTime / duration) * 100), 99);
-      
-      db.execute({
-        sql: 'UPDATE videos SET encoding_progress = ? WHERE id = ?',
-        args: [progress, videoId]
-      }).catch(console.error);
-    }
-  });
-
-  ffmpegProcess.on('close', (code) => {
-    if (code === 0) {
-      try {
-        fs.renameSync(tempPath, filePath);
-        const stats = fs.statSync(filePath);
-        db.execute({
-          sql: 'UPDATE videos SET encoding_status = ?, encoding_progress = ?, size = ? WHERE id = ?',
-          args: ['completed', 100, stats.size, videoId]
-        }).catch(console.error);
-      } catch (err) {
-        console.error('Failed to replace original file:', err);
-        db.execute({
-          sql: 'UPDATE videos SET encoding_status = ?, encoding_progress = ? WHERE id = ?',
-          args: ['failed', 0, videoId]
-        }).catch(console.error);
-      }
-    } else {
-      if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-      db.execute({
-        sql: 'UPDATE videos SET encoding_status = ?, encoding_progress = ? WHERE id = ?',
-        args: ['failed', 0, videoId]
-      }).catch(console.error);
-    }
-  });
 }
 
 app.prepare().then(async () => {
@@ -444,14 +346,10 @@ app.prepare().then(async () => {
     
     try {
       const result = await db.execute({
-        sql: 'INSERT INTO videos (user_id, filename, original_name, path, size, encoding_status, encoding_progress) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        args: [req.user.id, req.file.filename, req.file.originalname, req.file.path, req.file.size, 'pending', 0]
+        sql: 'INSERT INTO videos (user_id, filename, original_name, path, size) VALUES (?, ?, ?, ?, ?)',
+        args: [req.user.id, req.file.filename, req.file.originalname, req.file.path, req.file.size]
       });
-      const videoId = Number(result.lastInsertRowid);
-      res.json({ success: true, videoId });
-      
-      // Start encoding asynchronously
-      encodeVideo(videoId, req.file.path);
+      res.json({ success: true, videoId: Number(result.lastInsertRowid) });
     } catch (err) {
       res.status(500).json({ error: 'Database error' });
     }
@@ -552,14 +450,10 @@ app.prepare().then(async () => {
           
           const stats = fs.statSync(destPath);
           const result = await db.execute({
-            sql: 'INSERT INTO videos (user_id, filename, original_name, path, size, encoding_status, encoding_progress) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            args: [req.user.id, filename, 'imported_video', destPath, stats.size, 'pending', 0]
+            sql: 'INSERT INTO videos (user_id, filename, original_name, path, size) VALUES (?, ?, ?, ?, ?)',
+            args: [req.user.id, filename, 'imported_video', destPath, stats.size]
           });
-          const videoId = Number(result.lastInsertRowid);
-          importProgressMap.set(importId, { progress: 100, status: 'completed', videoId });
-          
-          // Start encoding asynchronously
-          encodeVideo(videoId, destPath);
+          importProgressMap.set(importId, { progress: 100, status: 'completed', videoId: Number(result.lastInsertRowid) });
         } catch (err) {
           console.error('Import pipeline failed:', err);
           importProgressMap.set(importId, { progress: 0, status: 'failed', error: 'Failed to download file' });
@@ -825,12 +719,26 @@ async function getNetworkStats() {
       args: [id]
     });
 
+    // Check for audio using ffprobe
+    const probe = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=codec_type', '-of', 'default=noprint_wrappers=1:nokey=1', video_path]);
+    const hasAudio = probe.stdout.toString().includes('audio');
+    
     const args = [
       '-re',
       '-i', video_path,
       '-v', 'info',
       '-protocol_whitelist', 'file,rtmp,tcp,udp,crypto,tls',
-      '-c', 'copy',
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-b:v', '6000k',
+      '-maxrate', '6000k',
+      '-bufsize', '12000k',
+      '-pix_fmt', 'yuv420p',
+      '-g', '50',
+      '-c:a', 'aac',
+      '-b:a', '160k',
+      '-ac', '2',
+      '-ar', '44100',
       '-f', 'flv',
       '-rtmp_live', 'live',
       '-reconnect', '1',
@@ -839,6 +747,10 @@ async function getNetworkStats() {
       '-reconnect_delay_max', '5',
       fullRtmpUrl
     ];
+
+    if (!hasAudio) {
+      args.splice(2, 0, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100');
+    }
 
     const ffmpeg = spawn(ffmpegPath, args, { env: process.env });
     activeStreams.set(id, ffmpeg);
