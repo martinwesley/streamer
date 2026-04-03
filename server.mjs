@@ -13,6 +13,7 @@ import https from 'https';
 import http from 'http';
 import { google } from 'googleapis';
 import ffmpegPath from 'ffmpeg-static';
+import ffprobePath from 'ffprobe-static';
 import si from 'systeminformation';
 
 const dev = process.env.NODE_ENV !== 'production';
@@ -154,23 +155,25 @@ async function authenticateToken(req, res, next) {
 
 function checkH264AAC(filePath) {
   try {
-    const probeVideo = spawnSync('ffprobe', [
+    const probeVideo = spawnSync(ffprobePath.path, [
       '-v', 'error',
       '-select_streams', 'v:0',
       '-show_entries', 'stream=codec_name',
       '-of', 'default=noprint_wrappers=1:nokey=1',
       filePath
     ]);
-    const videoCodec = probeVideo.stdout.toString().trim();
+    
+    const videoCodec = probeVideo.stdout ? probeVideo.stdout.toString().trim() : '';
 
-    const probeAudio = spawnSync('ffprobe', [
+    const probeAudio = spawnSync(ffprobePath.path, [
       '-v', 'error',
       '-select_streams', 'a:0',
       '-show_entries', 'stream=codec_name',
       '-of', 'default=noprint_wrappers=1:nokey=1',
       filePath
     ]);
-    const audioCodec = probeAudio.stdout.toString().trim();
+    
+    const audioCodec = probeAudio.stdout ? probeAudio.stdout.toString().trim() : '';
 
     return videoCodec === 'h264' && audioCodec === 'aac';
   } catch (err) {
