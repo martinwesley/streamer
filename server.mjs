@@ -343,7 +343,11 @@ app.prepare().then(async () => {
         if (id) downloadUrl = `https://drive.google.com/uc?export=download&id=${id}`;
       }
 
-      let response = await fetch(downloadUrl);
+      let response = await fetch(downloadUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+      });
       
       // Check if it's a Google Drive virus scan warning page
       if (response.ok && response.headers.get('content-type')?.includes('text/html')) {
@@ -351,10 +355,18 @@ app.prepare().then(async () => {
         const confirmMatch = text.match(/confirm=([a-zA-Z0-9_-]+)/);
         if (confirmMatch && confirmMatch[1]) {
           const confirmUrl = `${downloadUrl}&confirm=${confirmMatch[1]}`;
-          response = await fetch(confirmUrl);
+          response = await fetch(confirmUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+          });
         } else {
           // Re-fetch because we consumed the body
-          response = await fetch(downloadUrl);
+          response = await fetch(downloadUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+          });
         }
       }
 
@@ -387,17 +399,20 @@ app.prepare().then(async () => {
           }
         });
 
-        nodeStream.pipe(fileStream);
-        
-        fileStream.on('finish', async () => {
-          fileStream.close();
+        try {
+          await pipeline(nodeStream, fileStream);
+          
           const stats = fs.statSync(destPath);
           const result = await db.execute({
             sql: 'INSERT INTO videos (user_id, filename, original_name, path, size) VALUES (?, ?, ?, ?, ?)',
             args: [req.user.id, filename, 'imported_video', destPath, stats.size]
           });
           importProgressMap.set(importId, { progress: 100, status: 'completed', videoId: Number(result.lastInsertRowid) });
-        });
+        } catch (err) {
+          console.error('Import pipeline failed:', err);
+          importProgressMap.set(importId, { progress: 0, status: 'failed', error: 'Failed to download file' });
+          fs.unlink(destPath, () => {});
+        }
         
         fileStream.on('error', (err) => {
           fs.unlink(destPath, () => {});
