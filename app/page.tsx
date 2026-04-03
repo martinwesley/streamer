@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Video, Key, Calendar, LayoutDashboard, LogOut, Youtube } from "lucide-react";
+import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Video, Key, Calendar, LayoutDashboard, LogOut, Youtube, RefreshCw } from "lucide-react";
 import axios from "axios";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -56,21 +56,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchUser();
-
-    const fetchStats = async () => {
-      try {
-        const res = await fetch("/api/system-stats");
-        if (res.ok) {
-          const data = await res.json();
-          setServerStats(data);
-        }
-      } catch (err) {
-        console.error("Failed to fetch server stats", err);
-      }
-    };
-
     fetchStats();
-    const statsInterval = setInterval(fetchStats, 1000);
     const streamsInterval = setInterval(fetchStreams, 2000);
 
     const handleMessage = (event: MessageEvent) => {
@@ -82,11 +68,22 @@ export default function Dashboard() {
     window.addEventListener('message', handleMessage);
     return () => {
       window.removeEventListener('message', handleMessage);
-      clearInterval(statsInterval);
       clearInterval(streamsInterval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const fetchStats = async () => {
+    try {
+      const res = await fetch("/api/system-stats");
+      if (res.ok) {
+        const data = await res.json();
+        setServerStats(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch server stats", err);
+    }
+  };
 
   const fetchUser = async () => {
     try {
@@ -353,6 +350,21 @@ export default function Dashboard() {
     }
   };
 
+  const handleAbortStream = async (id: number) => {
+    if (!confirm("Are you sure you want to abort this live stream?")) return;
+    try {
+      const res = await fetch(`/api/streams/${id}/abort`, { method: 'POST' });
+      if (res.ok) {
+        toast.success("Stream aborted");
+        fetchStreams();
+      } else {
+        toast.error("Failed to abort stream");
+      }
+    } catch (err) {
+      toast.error("Error aborting stream");
+    }
+  };
+
   if (!user) return <div className="min-h-screen flex items-center justify-center bg-background text-foreground"><div className="animate-pulse flex flex-col items-center"><Activity className="w-12 h-12 text-primary mb-4" /><span>Loading...</span></div></div>;
 
   const SidebarContent = () => (
@@ -468,6 +480,10 @@ export default function Dashboard() {
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <h2 className="text-3xl font-bold tracking-tight text-white">System Overview</h2>
+                    <Button variant="outline" size="sm" onClick={fetchStats} className="border-white/10 text-white hover:bg-white/5">
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Refresh
+                    </Button>
                   </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -737,7 +753,11 @@ export default function Dashboard() {
                                   </TableCell>
                                   <TableCell className="text-white/60 text-sm">{new Date(s.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
                                   <TableCell className="text-right">
-                                    <Button variant="ghost" size="sm" onClick={() => handleDeleteStream(s.id)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10">Delete</Button>
+                                    {s.status === 'streaming' ? (
+                                      <Button variant="ghost" size="sm" onClick={() => handleAbortStream(s.id)} className="text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10">Abort</Button>
+                                    ) : (
+                                      <Button variant="ghost" size="sm" onClick={() => handleDeleteStream(s.id)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10">Delete</Button>
+                                    )}
                                   </TableCell>
                                 </TableRow>
                               ))

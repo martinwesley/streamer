@@ -599,6 +599,33 @@ async function getNetworkStats() {
     }
   });
 
+  const activeStreams = new Map();
+
+  server.post('/api/streams/:id/abort', authenticateToken, async (req, res) => {
+    const streamId = req.params.id;
+    try {
+      const streamRes = await db.execute({
+        sql: 'SELECT * FROM streams WHERE id = ? AND user_id = ?',
+        args: [streamId, req.user.id]
+      });
+      if (streamRes.rows.length === 0) return res.status(404).json({ error: 'Stream not found' });
+
+      const ffmpegProcess = activeStreams.get(Number(streamId));
+      if (ffmpegProcess) {
+        ffmpegProcess.kill('SIGKILL');
+        activeStreams.delete(Number(streamId));
+      }
+      
+      await db.execute({
+        sql: "UPDATE streams SET status = 'failed' WHERE id = ?",
+        args: [streamId]
+      });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to abort stream' });
+    }
+  });
+
   server.delete('/api/streams/:id', authenticateToken, async (req, res) => {
     const streamId = req.params.id;
     try {
@@ -679,7 +706,7 @@ async function getNetworkStats() {
       '-v', 'info',
       '-protocol_whitelist', 'file,rtmp,tcp,udp,crypto,tls',
       '-c:v', 'libx264',
-      '-preset', 'veryfast',
+      '-preset', 'ultrafast',
       '-b:v', '3000k',
       '-maxrate', '3000k',
       '-bufsize', '6000k',
@@ -703,6 +730,7 @@ async function getNetworkStats() {
     }
 
     const ffmpeg = spawn(ffmpegPath, args, { env: process.env });
+    activeStreams.set(id, ffmpeg);
 
     ffmpeg.stdout.on('data', (data) => {
       // console.log(`ffmpeg stdout: ${data}`);
@@ -718,9 +746,11 @@ async function getNetworkStats() {
         sql: "UPDATE streams SET status = 'failed' WHERE id = ?",
         args: [id]
       });
+      activeStreams.delete(id);
     });
 
     ffmpeg.on('close', async (code) => {
+      activeStreams.delete(id);
       console.log(`ffmpeg process for stream ${id} exited with code ${code}`);
       db.execute({
         sql: "UPDATE streams SET status = ? WHERE id = ?",
