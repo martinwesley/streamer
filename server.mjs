@@ -27,13 +27,36 @@ if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
 
+// Sync initial database from image if volume is empty
+const initDbPath = path.join(process.cwd(), 'init-data', 'local.db');
+const targetDbPath = path.join(dbDir, 'local.db');
+if (!fs.existsSync(targetDbPath) && fs.existsSync(initDbPath)) {
+  console.log("Initializing database from image...");
+  fs.copyFileSync(initDbPath, targetDbPath);
+}
+
 // Ensure uploads directory exists inside the persistent data volume
 const uploadsDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-const db = createClient({ url: `file:${path.join(dbDir, 'local.db')}` });
+// Sync initial uploads from image if volume is empty
+const initUploadsDir = path.join(process.cwd(), 'init-uploads');
+if (fs.existsSync(initUploadsDir)) {
+  const initFiles = fs.readdirSync(initUploadsDir);
+  if (initFiles.length > 0) {
+    console.log("Syncing uploads from image...");
+    for (const file of initFiles) {
+      const targetPath = path.join(uploadsDir, file);
+      if (!fs.existsSync(targetPath)) {
+        fs.copyFileSync(path.join(initUploadsDir, file), targetPath);
+      }
+    }
+  }
+}
+
+const db = createClient({ url: `file:${targetDbPath}` });
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'super-secret-key-change-in-prod');
 
