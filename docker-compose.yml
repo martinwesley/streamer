@@ -7,10 +7,13 @@ services:
     ports:
       - "7575:7575"
     volumes:
-      - ./data:/app/data
-      - ./uploads:/app/uploads
+      - data:/app/data
+      - uploads:/app/uploads
     restart: unless-stopped
     environment:
       - NODE_ENV=production
       - PORT=7575
       - JWT_SECRET=${JWT_SECRET}
+volumes:                            # ← This declares the volumes
+  app_data:
+  app_uploads:
