@@ -15,5 +15,5 @@ services:
       - PORT=7575
       - JWT_SECRET=${JWT_SECRET}
 volumes:                            # ← This declares the volumes
-  app_data:
-  app_uploads:
+  data:
+  uploads:
