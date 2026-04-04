@@ -30,7 +30,7 @@ export default function RegisterPage() {
         toast.error(data.error || "Registration failed");
       }
     } catch (err) {
-      toast.error("An error occurred");
+      toast.error("An error occurred.");
     }
   };
 
