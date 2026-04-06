@@ -765,7 +765,7 @@ async function getNetworkStats() {
       });
 
       if (code === 0 && broadcast_id) {
-        console.log(`Waiting 5 seconds to end YouTube broadcast ${broadcast_id}...`);
+        console.log(`Waiting 10 seconds to end YouTube broadcast ${broadcast_id}...`);
         setTimeout(async () => {
           try {
             const userResult = await db.execute({
@@ -793,7 +793,7 @@ async function getNetworkStats() {
           } catch (err) {
             console.error(`Failed to end YouTube broadcast ${broadcast_id}:`, err);
           }
-        }, 5000);
+        }, 10000);
       }
     });
   }

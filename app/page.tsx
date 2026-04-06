@@ -413,7 +413,7 @@ export default function Dashboard() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-white truncate">{user.username}</p>
               <p className="text-xs text-muted-foreground truncate">
-                {user.youtube_tokens ? <span className="text-green-400">YouTube Connected</span> : <span className="text-red-400">Not Connected</span>}
+                {user.youtube_tokens ? <span className="text-green-400">Connected to youtube.</span> : <span className="text-red-400">Not Connected</span>}
               </p>
             </div>
           </div>
@@ -660,7 +660,6 @@ export default function Dashboard() {
                             onChange={e => setRtmpUrl(e.target.value)} 
                             placeholder="rtmp://a.rtmp.youtube.com/live2" 
                             required 
-                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30 rounded-xl py-6"
                           />
                         </div>
                         <div className="space-y-2">
@@ -671,7 +670,6 @@ export default function Dashboard() {
                             onChange={e => setStreamKey(e.target.value)} 
                             placeholder="xxxx-xxxx-xxxx-xxxx" 
                             required 
-                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30 rounded-xl py-6"
                           />
                         </div>
                         <div className="space-y-2">
@@ -696,7 +694,6 @@ export default function Dashboard() {
                               onChange={e => setBroadcastId(e.target.value)} 
                               placeholder="Connect YouTube to select broadcast" 
                               disabled
-                              className="bg-black/50 border-white/10 text-white/50"
                             />
                           )}
                         </div>
@@ -707,12 +704,11 @@ export default function Dashboard() {
                             value={scheduledFor} 
                             onChange={e => setScheduledFor(e.target.value)} 
                             required 
-                            className="bg-black/50 border-white/10 text-white rounded-xl py-6"
                             style={{ colorScheme: 'dark' }}
                           />
                         </div>
                         <div className="md:col-span-2 pt-2">
-                          <Button type="submit" disabled={scheduling} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 font-semibold">
+                          <Button type="submit" disabled={scheduling} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
                             {scheduling ? "Scheduling..." : "Schedule Stream"}
                           </Button>
                         </div>
@@ -808,7 +804,7 @@ export default function Dashboard() {
                               />
                             </div>
                           </div>
-                          <Button type="submit" disabled={uploading || !file} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 font-semibold">
+                          <Button type="submit" disabled={uploading || !file} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
                             {uploading ? "Uploading..." : "Upload Video"}
                           </Button>
                           {uploading && (
@@ -838,13 +834,12 @@ export default function Dashboard() {
                               onChange={e => setImportUrl(e.target.value)} 
                               placeholder="https://..." 
                               required 
-                              className="bg-black/50 border-white/10 text-white placeholder:text-white/30 rounded-xl py-6"
                             />
                             <p className="text-xs text-white/50">
                               For Google Drive, use a direct download link format.
                             </p>
                           </div>
-                          <Button type="submit" disabled={importing || !importUrl} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 font-semibold">
+                          <Button type="submit" disabled={importing || !importUrl} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
                             {importing ? "Importing..." : "Import Video"}
                           </Button>
                           {importing && (
@@ -931,7 +926,6 @@ export default function Dashboard() {
                             onChange={e => setNewKeyName(e.target.value)} 
                             placeholder="My Channel" 
                             required 
-                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30 rounded-xl py-6"
                           />
                         </div>
                         <div className="space-y-2">
@@ -941,7 +935,6 @@ export default function Dashboard() {
                             onChange={e => setNewKeyRtmp(e.target.value)} 
                             placeholder="rtmp://a.rtmp.youtube.com/live2" 
                             required 
-                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30 rounded-xl py-6"
                           />
                         </div>
                         <div className="space-y-2">
@@ -952,11 +945,10 @@ export default function Dashboard() {
                             onChange={e => setNewKeyStream(e.target.value)} 
                             placeholder="xxxx-xxxx-xxxx-xxxx" 
                             required 
-                            className="bg-black/50 border-white/10 text-white placeholder:text-white/30 rounded-xl py-6"
                           />
                         </div>
                         <div className="md:col-span-3 pt-2">
-                          <Button type="submit" disabled={savingKey} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 font-semibold">
+                          <Button type="submit" disabled={savingKey} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
                             {savingKey ? "Saving..." : "Save Key"}
                           </Button>
                         </div>
