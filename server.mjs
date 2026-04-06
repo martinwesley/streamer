@@ -192,7 +192,7 @@ app.prepare().then(async () => {
         .setExpirationTime('24h')
         .sign(JWT_SECRET);
       
-      res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' });
+      res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'none' });
       res.json({ success: true, token });
     } else {
       res.status(401).json({ error: 'Invalid credentials' });
@@ -249,10 +249,14 @@ app.prepare().then(async () => {
         <html>
           <body>
             <script>
-              window.opener.postMessage({ type: 'YOUTUBE_AUTH_SUCCESS' }, '*');
-              window.close();
+              if (window.opener) {
+                window.opener.postMessage({ type: 'YOUTUBE_AUTH_SUCCESS' }, '*');
+                window.close();
+              } else {
+                window.location.href = '/';
+              }
             </script>
-            <p>YouTube connected successfully. You can close this window.</p>
+            <p>Authentication successful. This window should close automatically.</p>
           </body>
         </html>
       `);
@@ -287,13 +291,16 @@ app.prepare().then(async () => {
 
       const youtube = google.youtube({ version: 'v3', auth });
       const response = await youtube.liveBroadcasts.list({
-        part: ['snippet', 'status'],
-        broadcastStatus: 'upcoming',
-        broadcastType: 'all',
+        part: 'snippet,status',
+        mine: true,
         maxResults: 50
       });
 
-      const broadcasts = response.data.items?.map(item => ({
+      const broadcasts = response.data.items?.filter(item => 
+        item.status?.lifeCycleStatus === 'upcoming' || 
+        item.status?.lifeCycleStatus === 'ready' || 
+        item.status?.lifeCycleStatus === 'created'
+      ).map(item => ({
         id: item.id,
         title: item.snippet?.title,
         status: item.status?.lifeCycleStatus,

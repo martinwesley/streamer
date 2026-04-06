@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Video, Key, Calendar, LayoutDashboard, LogOut, Youtube, RefreshCw } from "lucide-react";
 import axios from "axios";
 import { motion, AnimatePresence } from "motion/react";
+import Link from "next/link";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -111,16 +112,6 @@ export default function Dashboard() {
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
-  };
-
-  const handleConnectYouTube = async () => {
-    try {
-      const res = await fetch("/api/auth/youtube/url");
-      const { url } = await res.json();
-      window.open(url, 'youtube_auth', 'width=600,height=700');
-    } catch (err) {
-      toast.error("Failed to get YouTube auth URL");
-    }
   };
 
   const fetchVideos = async () => {
@@ -419,9 +410,9 @@ export default function Dashboard() {
           </div>
           
           {!user.youtube_tokens && (
-            <Button variant="outline" size="sm" onClick={handleConnectYouTube} className="w-full border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300">
+            <Link href="/youtube-connect" className={`w-full border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300 ${buttonVariants({ variant: "outline", size: "sm" })}`}>
               <Youtube className="w-4 h-4 mr-2" /> Connect YouTube
-            </Button>
+            </Link>
           )}
           
           <Button variant="ghost" size="sm" onClick={handleLogout} className="w-full text-muted-foreground hover:text-white hover:bg-white/5">
