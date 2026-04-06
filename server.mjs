@@ -288,7 +288,7 @@ app.prepare().then(async () => {
       const youtube = google.youtube({ version: 'v3', auth });
       const response = await youtube.liveBroadcasts.list({
         part: ['snippet', 'status'],
-        broadcastStatus: 'all',
+        broadcastStatus: 'upcoming',
         broadcastType: 'all',
         maxResults: 50
       });
@@ -297,7 +297,8 @@ app.prepare().then(async () => {
         id: item.id,
         title: item.snippet?.title,
         status: item.status?.lifeCycleStatus,
-        scheduledStartTime: item.snippet?.scheduledStartTime
+        scheduledStartTime: item.snippet?.scheduledStartTime,
+        thumbnail: item.snippet?.thumbnails?.default?.url || item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.high?.url
       })) || [];
 
       res.json({ broadcasts });
@@ -764,7 +765,7 @@ async function getNetworkStats() {
         args: [code === 0 ? 'completed' : 'failed', id]
       });
 
-      if (code === 0 && broadcast_id) {
+      if (broadcast_id) {
         console.log(`Waiting 10 seconds to end YouTube broadcast ${broadcast_id}...`);
         setTimeout(async () => {
           try {

@@ -673,18 +673,36 @@ export default function Dashboard() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label className="text-white/80">Broadcast ID (Optional - for YouTube API)</Label>
+                          <Label className="text-white/80">Upcoming YouTube Streams</Label>
                           {user.youtube_tokens ? (
                             <Select value={broadcastId || undefined} onValueChange={(val) => setBroadcastId(val === "none" ? "" : (val || ""))}>
-                              <SelectTrigger className="bg-black/50 border-white/10 text-white">
-                                <SelectValue placeholder="Select a YouTube Broadcast">
-                                  {broadcastId ? (broadcasts.find(b => b.id === broadcastId)?.title || "Unknown Broadcast") : "Select a YouTube Broadcast"}
+                              <SelectTrigger className="bg-black/50 border-white/10 text-white h-auto py-3">
+                                <SelectValue placeholder="Select an upcoming stream">
+                                  {broadcastId ? (
+                                    (() => {
+                                      const b = broadcasts.find(b => b.id === broadcastId);
+                                      return b ? (
+                                        <div className="flex items-center gap-3">
+                                          {b.thumbnail && <img src={b.thumbnail} alt={b.title} className="w-10 h-7 object-cover rounded" />}
+                                          <span className="truncate">{b.title}</span>
+                                        </div>
+                                      ) : "Unknown Broadcast";
+                                    })()
+                                  ) : "Select an upcoming stream"}
                                 </SelectValue>
                               </SelectTrigger>
                               <SelectContent className="bg-background border-white/10">
                                 <SelectItem value="none">None</SelectItem>
                                 {broadcasts.map(b => (
-                                  <SelectItem key={b.id} value={b.id}>{b.title} ({b.status})</SelectItem>
+                                  <SelectItem key={b.id} value={b.id} className="py-2">
+                                    <div className="flex items-center gap-3">
+                                      {b.thumbnail && <img src={b.thumbnail} alt={b.title} className="w-12 h-8 object-cover rounded" />}
+                                      <div className="flex flex-col">
+                                        <span className="font-medium truncate max-w-[200px]">{b.title}</span>
+                                        <span className="text-xs text-muted-foreground">{new Date(b.scheduledStartTime).toLocaleString()}</span>
+                                      </div>
+                                    </div>
+                                  </SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
@@ -692,7 +710,7 @@ export default function Dashboard() {
                             <Input 
                               value={broadcastId} 
                               onChange={e => setBroadcastId(e.target.value)} 
-                              placeholder="Connect YouTube to select broadcast" 
+                              placeholder="Connect YouTube to select an upcoming stream" 
                               disabled
                             />
                           )}
