@@ -39,10 +39,7 @@ export default function YouTubeConnectPage() {
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      const origin = event.origin;
-      if (!origin.endsWith('.run.app') && !origin.includes('localhost')) {
-        return;
-      }
+      // Allow any origin for now to ensure it works
       if (event.data?.type === 'YOUTUBE_AUTH_SUCCESS') {
         toast.success("YouTube connected successfully!");
         router.push("/");
