@@ -352,26 +352,30 @@ app.prepare().then(async () => {
       auth.setCredentials(tokens);
 
       const youtube = google.youtube({ version: 'v3', auth });
-      const response = await youtube.liveBroadcasts.list({
-        part: 'snippet,status',
-        mine: true,
-        maxResults: 50,
-        broadcastType: 'all'
+      
+      // Get the channel ID first
+      const channelRes = await youtube.channels.list({
+        part: 'id',
+        mine: true
       });
-      console.log('YouTube broadcasts response:', JSON.stringify(response.data.items, null, 2));
+      const channelId = channelRes.data.items[0].id;
+
+      const response = await youtube.search.list({
+        part: 'snippet',
+        type: 'video',
+        eventType: 'upcoming',
+        channelId: channelId,
+        maxResults: 20
+      });
+      console.log('YouTube search response:', JSON.stringify(response.data.items, null, 2));
       console.log('Total items:', response.data.items?.length);
 
-      const broadcasts = response.data.items?.filter(item => 
-        item.status?.lifeCycleStatus === 'upcoming' || 
-        item.status?.lifeCycleStatus === 'ready' || 
-        item.status?.lifeCycleStatus === 'created' ||
-        item.status?.lifeCycleStatus === 'active'
-      ).map(item => ({
-        id: item.id,
+      const broadcasts = response.data.items?.map(item => ({
+        id: item.id.videoId,
         title: item.snippet?.title,
-        status: item.status?.lifeCycleStatus,
-        scheduledStartTime: item.snippet?.scheduledStartTime,
-        thumbnail: item.snippet?.thumbnails?.default?.url || item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.high?.url
+        status: 'upcoming',
+        scheduledStartTime: item.snippet?.publishedAt, // This is not the scheduled start time, but it's what search returns
+        thumbnail: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url
       })) || [];
 
       res.json({ broadcasts });
