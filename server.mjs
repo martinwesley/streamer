@@ -140,7 +140,7 @@ const upload = multer({ storage: storage });
 
 // JWT Middleware
 async function authenticateToken(req, res, next) {
-  const token = req.cookies?.token || req.headers['authorization']?.split(' ')[1];
+  const token = req.cookies?.token || req.headers['authorization']?.split(' ')[1] || req.query.state;
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
@@ -219,10 +219,13 @@ app.prepare().then(async () => {
       `${appUrl}/api/auth/youtube/callback`
     );
 
+    const token = req.cookies?.token || req.headers['authorization']?.split(' ')[1];
+    
     const url = client.generateAuthUrl({
       access_type: 'offline',
-      scope: ['https://www.googleapis.com/auth/youtube.force-ssl'],
-      prompt: 'consent'
+      scope: ['https://www.googleapis.com/auth/youtube.force-ssl', 'https://www.googleapis.com/auth/youtube.readonly'],
+      prompt: 'consent',
+      state: token
     });
     res.json({ url });
   });
@@ -263,6 +266,65 @@ app.prepare().then(async () => {
     } catch (err) {
       console.error('YouTube OAuth error:', err);
       res.status(500).send('Authentication failed');
+    }
+  });
+
+  server.post('/api/youtube/disconnect', authenticateToken, async (req, res) => {
+    try {
+      await db.execute({
+        sql: 'UPDATE users SET youtube_tokens = NULL WHERE id = ?',
+        args: [req.user.id]
+      });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to disconnect YouTube' });
+    }
+  });
+
+  server.get('/api/youtube/channel', authenticateToken, async (req, res) => {
+    try {
+      const userResult = await db.execute({
+        sql: 'SELECT youtube_tokens FROM users WHERE id = ?',
+        args: [req.user.id]
+      });
+      const tokensStr = userResult.rows[0]?.youtube_tokens;
+      if (!tokensStr) {
+        return res.status(400).json({ error: 'YouTube not connected' });
+      }
+
+      const tokens = JSON.parse(tokensStr);
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+      const host = req.headers['x-forwarded-host'] || req.headers.host;
+      const appUrl = process.env.APP_URL || `${protocol}://${host}`;
+
+      const auth = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        `${appUrl}/api/auth/youtube/callback`
+      );
+      auth.setCredentials(tokens);
+
+      const youtube = google.youtube({ version: 'v3', auth });
+      const response = await youtube.channels.list({
+        part: 'snippet,statistics',
+        mine: true
+      });
+
+      if (response.data.items && response.data.items.length > 0) {
+        const channel = response.data.items[0];
+        res.json({
+          channel: {
+            title: channel.snippet?.title,
+            thumbnail: channel.snippet?.thumbnails?.default?.url,
+            subscriberCount: channel.statistics?.subscriberCount
+          }
+        });
+      } else {
+        res.status(404).json({ error: 'Channel not found' });
+      }
+    } catch (err) {
+      console.error('Failed to fetch channel:', err);
+      res.status(500).json({ error: 'Failed to fetch channel' });
     }
   });
 
@@ -571,7 +633,53 @@ async function getNetworkStats() {
   });
 
   server.post('/api/streams', authenticateToken, async (req, res) => {
-    const { video_id, rtmp_url, stream_key, broadcast_id, scheduled_for } = req.body;
+    let { video_id, rtmp_url, stream_key, broadcast_id, scheduled_for } = req.body;
+    
+    if (broadcast_id) {
+      try {
+        const userResult = await db.execute({
+          sql: 'SELECT youtube_tokens FROM users WHERE id = ?',
+          args: [req.user.id]
+        });
+        const tokensStr = userResult.rows[0]?.youtube_tokens;
+        if (tokensStr) {
+          const tokens = JSON.parse(tokensStr);
+          const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+          const host = req.headers['x-forwarded-host'] || req.headers.host;
+          const appUrl = process.env.APP_URL || `${protocol}://${host}`;
+
+          const auth = new google.auth.OAuth2(
+            process.env.GOOGLE_CLIENT_ID,
+            process.env.GOOGLE_CLIENT_SECRET,
+            `${appUrl}/api/auth/youtube/callback`
+          );
+          auth.setCredentials(tokens);
+          const youtube = google.youtube({ version: 'v3', auth });
+
+          const broadcastRes = await youtube.liveBroadcasts.list({
+            part: 'contentDetails',
+            id: broadcast_id
+          });
+
+          const boundStreamId = broadcastRes.data.items?.[0]?.contentDetails?.boundStreamId;
+          if (boundStreamId) {
+            const streamRes = await youtube.liveStreams.list({
+              part: 'cdn',
+              id: boundStreamId
+            });
+            const ingestionInfo = streamRes.data.items?.[0]?.cdn?.ingestionInfo;
+            if (ingestionInfo) {
+              rtmp_url = ingestionInfo.ingestionAddress;
+              stream_key = ingestionInfo.streamName;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch YouTube stream info:', err);
+        return res.status(500).json({ error: 'Failed to fetch YouTube stream details' });
+      }
+    }
+
     if (!video_id || !rtmp_url || !stream_key || !scheduled_for) {
       return res.status(400).json({ error: 'Missing fields' });
     }
@@ -746,6 +854,53 @@ async function getNetworkStats() {
 
     const ffmpeg = spawn(ffmpegPath, args, { env: process.env });
     activeStreams.set(id, ffmpeg);
+
+    if (broadcast_id) {
+      console.log(`Waiting 15 seconds to transition YouTube broadcast ${broadcast_id} to live...`);
+      setTimeout(async () => {
+        try {
+          const userResult = await db.execute({
+            sql: 'SELECT youtube_tokens FROM users WHERE id = ?',
+            args: [user_id]
+          });
+          const tokensStr = userResult.rows[0]?.youtube_tokens;
+          if (tokensStr) {
+            const tokens = JSON.parse(tokensStr);
+            const auth = new google.auth.OAuth2(
+              process.env.GOOGLE_CLIENT_ID,
+              process.env.GOOGLE_CLIENT_SECRET,
+              `${process.env.APP_URL}/api/auth/youtube/callback`
+            );
+            auth.setCredentials(tokens);
+            
+            const youtube = google.youtube({ version: 'v3', auth });
+            
+            // Transition to testing first if needed, but usually we can just go live
+            // Note: Some broadcasts require testing phase first depending on monitorStream settings
+            try {
+              await youtube.liveBroadcasts.transition({
+                id: broadcast_id,
+                broadcastStatus: 'testing',
+                part: ['id', 'status']
+              });
+              console.log(`Transitioned broadcast ${broadcast_id} to testing. Waiting 5s before going live...`);
+              await new Promise(resolve => setTimeout(resolve, 5000));
+            } catch (testErr) {
+              console.log(`Could not transition to testing (might not be required or already testing): ${testErr.message}`);
+            }
+
+            await youtube.liveBroadcasts.transition({
+              id: broadcast_id,
+              broadcastStatus: 'live',
+              part: ['id', 'status']
+            });
+            console.log(`Successfully transitioned YouTube broadcast ${broadcast_id} to live`);
+          }
+        } catch (err) {
+          console.error(`Failed to transition YouTube broadcast ${broadcast_id} to live:`, err);
+        }
+      }, 15000);
+    }
 
     ffmpeg.stdout.on('data', (data) => {
       // console.log(`ffmpeg stdout: ${data}`);

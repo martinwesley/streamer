@@ -55,6 +55,10 @@ export default function Dashboard() {
   const [newKeyStream, setNewKeyStream] = useState("");
   const [savingKey, setSavingKey] = useState(false);
 
+  // YouTube state
+  const [youtubeChannel, setYoutubeChannel] = useState<any>(null);
+  const [youtubeLoading, setYoutubeLoading] = useState(false);
+
   useEffect(() => {
     fetchUser();
     fetchStats();
@@ -76,6 +80,36 @@ export default function Dashboard() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const fetchYouTubeChannel = async () => {
+    setYoutubeLoading(true);
+    try {
+      const res = await fetch("/api/youtube/channel");
+      if (res.ok) {
+        const data = await res.json();
+        setYoutubeChannel(data.channel);
+      } else {
+        setYoutubeChannel(null);
+      }
+    } catch (err) {
+      console.error("Failed to fetch YouTube channel", err);
+    } finally {
+      setYoutubeLoading(false);
+    }
+  };
+
+  const handleDisconnectYouTube = async () => {
+    try {
+      const res = await fetch("/api/youtube/disconnect", { method: "POST" });
+      if (res.ok) {
+        toast.success("YouTube disconnected");
+        fetchUser();
+        setYoutubeChannel(null);
+      }
+    } catch (err) {
+      toast.error("Failed to disconnect YouTube");
+    }
+  };
 
   const fetchStats = async () => {
     try {
@@ -100,6 +134,7 @@ export default function Dashboard() {
         fetchSavedKeys();
         if (data.user.youtube_tokens) {
           fetchBroadcasts();
+          fetchYouTubeChannel();
         }
       } else {
         router.push("/login");
@@ -278,7 +313,7 @@ export default function Dashboard() {
 
   const handleSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedVideo || !rtmpUrl || !streamKey || !scheduledFor) {
+    if (!selectedVideo || (!broadcastId && (!rtmpUrl || !streamKey)) || !scheduledFor) {
       return toast.error("Please fill all fields");
     }
     
@@ -378,6 +413,7 @@ export default function Dashboard() {
             { id: "streams", label: "Streams", icon: Calendar },
             { id: "videos", label: "Videos", icon: Video },
             { id: "keys", label: "Stream Keys", icon: Key },
+            { id: "youtube", label: "YouTube", icon: Youtube },
           ].map((item) => (
             <button
               key={item.id}
@@ -408,12 +444,6 @@ export default function Dashboard() {
               </p>
             </div>
           </div>
-          
-          {!user.youtube_tokens && (
-            <Link href="/youtube-connect" className={`w-full border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300 ${buttonVariants({ variant: "outline", size: "sm" })}`}>
-              <Youtube className="w-4 h-4 mr-2" /> Connect YouTube
-            </Link>
-          )}
           
           <Button variant="ghost" size="sm" onClick={handleLogout} className="w-full text-muted-foreground hover:text-white hover:bg-white/5">
             <LogOut className="w-4 h-4 mr-2" /> Logout
@@ -488,7 +518,7 @@ export default function Dashboard() {
                         </CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="text-2xl font-bold text-white">{serverStats?.cpu.toFixed(1) || 0}%</div>
+                        <div className="text-2xl font-bold text-white">{serverStats?.cpu != null ? serverStats.cpu.toFixed(1) : 0}%</div>
                         <Progress value={serverStats?.cpu || 0} className="h-1 mt-3 bg-white/10" />
                       </CardContent>
                     </Card>
@@ -501,7 +531,7 @@ export default function Dashboard() {
                       </CardHeader>
                       <CardContent>
                         <div className="text-2xl font-bold text-white">
-                          {serverStats ? (serverStats.memory.used / (1024 * 1024 * 1024)).toFixed(1) : 0} <span className="text-sm text-muted-foreground font-normal">/ {serverStats ? (serverStats.memory.total / (1024 * 1024 * 1024)).toFixed(1) : 0} GB</span>
+                          {serverStats?.memory ? (serverStats.memory.used / (1024 * 1024 * 1024)).toFixed(1) : 0} <span className="text-sm text-muted-foreground font-normal">/ {serverStats?.memory ? (serverStats.memory.total / (1024 * 1024 * 1024)).toFixed(1) : 0} GB</span>
                         </div>
                         <Progress value={serverStats ? (serverStats.memory.used / serverStats.memory.total) * 100 : 0} className="h-1 mt-3 bg-white/10" />
                       </CardContent>
@@ -515,7 +545,7 @@ export default function Dashboard() {
                       </CardHeader>
                       <CardContent>
                         <div className="text-2xl font-bold text-white">
-                          {serverStats ? (serverStats.disk.used / (1024 * 1024 * 1024)).toFixed(1) : 0} <span className="text-sm text-muted-foreground font-normal">/ {serverStats ? (serverStats.disk.total / (1024 * 1024 * 1024)).toFixed(1) : 0} GB</span>
+                          {serverStats?.disk ? (serverStats.disk.used / (1024 * 1024 * 1024)).toFixed(1) : 0} <span className="text-sm text-muted-foreground font-normal">/ {serverStats?.disk ? (serverStats.disk.total / (1024 * 1024 * 1024)).toFixed(1) : 0} GB</span>
                         </div>
                         <Progress value={serverStats ? (serverStats.disk.used / serverStats.disk.total) * 100 : 0} className="h-1 mt-3 bg-white/10" />
                       </CardContent>
@@ -531,11 +561,11 @@ export default function Dashboard() {
                         <div className="flex justify-between items-end">
                           <div>
                             <div className="text-xs text-muted-foreground mb-1">Download</div>
-                            <div className="text-lg font-bold text-green-400">{serverStats ? (serverStats.network.rx_sec / (1024 * 1024)).toFixed(2) : 0} <span className="text-xs font-normal">MB/s</span></div>
+                            <div className="text-lg font-bold text-green-400">{serverStats?.network ? (serverStats.network.rx_sec / (1024 * 1024)).toFixed(2) : 0} <span className="text-xs font-normal">MB/s</span></div>
                           </div>
                           <div className="text-right">
                             <div className="text-xs text-muted-foreground mb-1">Upload</div>
-                            <div className="text-lg font-bold text-blue-400">{serverStats ? (serverStats.network.tx_sec / (1024 * 1024)).toFixed(2) : 0} <span className="text-xs font-normal">MB/s</span></div>
+                            <div className="text-lg font-bold text-blue-400">{serverStats?.network ? (serverStats.network.tx_sec / (1024 * 1024)).toFixed(2) : 0} <span className="text-xs font-normal">MB/s</span></div>
                           </div>
                         </div>
                       </CardContent>
@@ -645,28 +675,24 @@ export default function Dashboard() {
                           </Select>
                         </div>
                         <div className="space-y-2">
-                          <Label className="text-white/80">RTMP URL</Label>
-                          <Input 
-                            value={rtmpUrl} 
-                            onChange={e => setRtmpUrl(e.target.value)} 
-                            placeholder="rtmp://a.rtmp.youtube.com/live2" 
-                            required 
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label className="text-white/80">Stream Key</Label>
-                          <Input 
-                            type="password"
-                            value={streamKey} 
-                            onChange={e => setStreamKey(e.target.value)} 
-                            placeholder="xxxx-xxxx-xxxx-xxxx" 
-                            required 
-                          />
-                        </div>
-                        <div className="space-y-2">
                           <Label className="text-white/80">Upcoming YouTube Streams</Label>
                           {user.youtube_tokens ? (
-                            <Select value={broadcastId || undefined} onValueChange={(val) => setBroadcastId(val === "none" ? "" : (val || ""))}>
+                            <Select 
+                              value={broadcastId || undefined} 
+                              onValueChange={(val) => {
+                                const newBroadcastId = val === "none" ? "" : (val || "");
+                                setBroadcastId(newBroadcastId);
+                                if (newBroadcastId) {
+                                  const b = broadcasts.find(b => b.id === newBroadcastId);
+                                  if (b && b.scheduledStartTime) {
+                                    // Convert ISO string to datetime-local format (YYYY-MM-DDThh:mm)
+                                    const date = new Date(b.scheduledStartTime);
+                                    const localDateTime = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                                    setScheduledFor(localDateTime);
+                                  }
+                                }
+                              }}
+                            >
                               <SelectTrigger className="bg-black/50 border-white/10 text-white h-auto py-3">
                                 <SelectValue placeholder="Select an upcoming stream">
                                   {broadcastId ? (
@@ -706,6 +732,30 @@ export default function Dashboard() {
                             />
                           )}
                         </div>
+                        
+                        {!broadcastId && (
+                          <>
+                            <div className="space-y-2">
+                              <Label className="text-white/80">RTMP URL</Label>
+                              <Input 
+                                value={rtmpUrl} 
+                                onChange={e => setRtmpUrl(e.target.value)} 
+                                placeholder="rtmp://a.rtmp.youtube.com/live2" 
+                                required={!broadcastId} 
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label className="text-white/80">Stream Key</Label>
+                              <Input 
+                                type="password"
+                                value={streamKey} 
+                                onChange={e => setStreamKey(e.target.value)} 
+                                placeholder="xxxx-xxxx-xxxx-xxxx" 
+                                required={!broadcastId} 
+                              />
+                            </div>
+                          </>
+                        )}
                         <div className="space-y-2">
                           <Label className="text-white/80">Schedule Time</Label>
                           <Input 
@@ -1000,6 +1050,105 @@ export default function Dashboard() {
                           </TableBody>
                         </Table>
                       </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+              {activeTab === "youtube" && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-2xl font-bold tracking-tight text-white">YouTube Integration</h2>
+                  </div>
+
+                  <Card className="glass border-white/5">
+                    <CardHeader>
+                      <CardTitle className="text-white">Connection Status</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {user.youtube_tokens ? (
+                        <div className="space-y-6">
+                          <div className="flex items-center gap-4 p-4 rounded-xl bg-white/5 border border-white/10">
+                            {youtubeLoading ? (
+                              <div className="animate-pulse flex items-center gap-4">
+                                <div className="w-16 h-16 rounded-full bg-white/10"></div>
+                                <div className="space-y-2">
+                                  <div className="h-4 w-32 bg-white/10 rounded"></div>
+                                  <div className="h-3 w-24 bg-white/10 rounded"></div>
+                                </div>
+                              </div>
+                            ) : youtubeChannel ? (
+                              <>
+                                {youtubeChannel.thumbnail ? (
+                                  <img src={youtubeChannel.thumbnail} alt={youtubeChannel.title} className="w-16 h-16 rounded-full" />
+                                ) : (
+                                  <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
+                                    <Youtube className="w-8 h-8 text-white/50" />
+                                  </div>
+                                )}
+                                <div>
+                                  <h3 className="text-lg font-semibold text-white">{youtubeChannel.title}</h3>
+                                  <p className="text-sm text-white/60">
+                                    {parseInt(youtubeChannel.subscriberCount).toLocaleString()} subscribers
+                                  </p>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="text-white/70">Connected to YouTube, but channel info could not be loaded.</div>
+                            )}
+                          </div>
+                          
+                          <Button 
+                            variant="destructive" 
+                            onClick={handleDisconnectYouTube}
+                            className="w-full sm:w-auto"
+                          >
+                            Disconnect YouTube
+                          </Button>
+
+                          <div className="pt-4 border-t border-white/10">
+                            <h3 className="text-lg font-medium text-white mb-4">Upcoming Live Streams</h3>
+                            {broadcasts.length === 0 ? (
+                              <p className="text-white/60 text-sm">No upcoming streams found. Schedule one in YouTube Studio.</p>
+                            ) : (
+                              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                                {broadcasts.map(b => (
+                                  <div key={b.id} className="bg-black/20 rounded-xl overflow-hidden border border-white/5">
+                                    {b.thumbnail ? (
+                                      <img src={b.thumbnail} alt={b.title} className="w-full aspect-video object-cover" />
+                                    ) : (
+                                      <div className="w-full aspect-video bg-white/5 flex items-center justify-center">
+                                        <Video className="w-8 h-8 text-white/20" />
+                                      </div>
+                                    )}
+                                    <div className="p-3">
+                                      <h4 className="text-white font-medium truncate" title={b.title}>{b.title}</h4>
+                                      <p className="text-xs text-white/60 mt-1">
+                                        {new Date(b.scheduledStartTime).toLocaleString()}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 space-y-4">
+                          <div className="mx-auto w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4">
+                            <Youtube className="w-8 h-8 text-red-500" />
+                          </div>
+                          <h3 className="text-xl font-semibold text-white">Not Connected</h3>
+                          <p className="text-white/60 max-w-md mx-auto">
+                            Connect your YouTube account to schedule streams directly to your upcoming broadcasts.
+                          </p>
+                          <Link 
+                            href="/youtube-connect" 
+                            className={`mt-4 inline-flex ${buttonVariants({ variant: "default" })} bg-red-600 hover:bg-red-700 text-white`}
+                          >
+                            Connect YouTube
+                          </Link>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 </div>
