@@ -249,19 +249,19 @@ app.prepare().then(async () => {
         args: [JSON.stringify(tokens), req.user.id]
       });
       res.send(`
-        <html>
-          <body>
-            <script>
+        &lt;html&gt;
+          &lt;body&gt;
+            &lt;script&gt;
               if (window.opener) {
                 window.opener.postMessage({ type: 'YOUTUBE_AUTH_SUCCESS' }, '*');
                 window.close();
               } else {
                 window.location.href = '/';
               }
-            </script>
-            <p>Authentication successful. This window should close automatically.</p>
-          </body>
-        </html>
+            &lt;/script&gt;
+            &lt;p&gt;Authentication successful. This window should close automatically.&lt;/p&gt;
+          &lt;/body&gt;
+        &lt;/html&gt;
       `);
     } catch (err) {
       console.error('YouTube OAuth error:', err);
@@ -328,6 +328,9 @@ app.prepare().then(async () => {
     }
   });
 
+  // ===================================================================
+  // FIXED ENDPOINT: /api/youtube/broadcasts
+  // ===================================================================
   server.get('/api/youtube/broadcasts', authenticateToken, async (req, res) => {
     try {
       const userResult = await db.execute({
@@ -353,35 +356,34 @@ app.prepare().then(async () => {
 
       const youtube = google.youtube({ version: 'v3', auth });
       
-      // Get the channel ID first
-      const channelRes = await youtube.channels.list({
-        part: 'id',
-        mine: true
-      });
-      const channelId = channelRes.data.items[0].id;
-
-      const response = await youtube.search.list({
-        part: 'snippet',
-        type: 'video',
-        eventType: 'upcoming',
-        channelId: channelId,
+      // === FIXED: Use liveBroadcasts.list instead of search.list ===
+      const response = await youtube.liveBroadcasts.list({
+        part: 'id,snippet,contentDetails,status',
+        mine: true,
+        broadcastStatus: 'upcoming',   // Only upcoming streams
         maxResults: 20
       });
-      console.log('YouTube search response:', JSON.stringify(response.data.items, null, 2));
-      console.log('Total items:', response.data.items?.length);
+
+      console.log('YouTube liveBroadcasts response count:', response.data.items?.length);
+      console.log('YouTube liveBroadcasts items:', JSON.stringify(response.data.items, null, 2));
 
       const broadcasts = response.data.items?.map(item => ({
-        id: item.id.videoId,
+        id: item.id,
         title: item.snippet?.title,
-        status: 'upcoming',
-        scheduledStartTime: item.snippet?.publishedAt, // This is not the scheduled start time, but it's what search returns
-        thumbnail: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url
+        status: item.status?.lifeCycleStatus || 'upcoming',   // accurate status
+        scheduledStartTime: item.snippet?.scheduledStartTime, // ← THIS WAS THE MAIN BUG
+        thumbnail: item.snippet?.thumbnails?.high?.url 
+                || item.snippet?.thumbnails?.medium?.url 
+                || item.snippet?.thumbnails?.default?.url
       })) || [];
 
       res.json({ broadcasts });
     } catch (err) {
-      console.error('Failed to fetch broadcasts:', err);
-      res.status(500).json({ error: 'Failed to fetch broadcasts' });
+      console.error('Failed to fetch YouTube upcoming broadcasts:', err);
+      res.status(500).json({ 
+        error: 'Failed to fetch upcoming broadcasts',
+        details: err.message 
+      });
     }
   });
 
@@ -477,7 +479,6 @@ app.prepare().then(async () => {
             }
           });
         } else {
-          // Re-fetch because we consumed the body
           response = await fetch(downloadUrl, {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -511,9 +512,7 @@ app.prepare().then(async () => {
               const percent = Math.round((downloadedBytes / totalBytes) * 100);
               importProgressMap.set(importId, { progress: percent, status: 'downloading' });
             } else {
-              // Fake progress if no content length
               const currentProgress = importProgressMap.get(importId)?.progress || 0;
-              // Increment slowly
               if (Math.random() < 0.1) {
                 importProgressMap.set(importId, { progress: Math.min(currentProgress + 1, 99), status: 'downloading' });
               }
@@ -883,18 +882,16 @@ async function getNetworkStats() {
             
             const youtube = google.youtube({ version: 'v3', auth });
             
-            // Transition to testing first if needed, but usually we can just go live
-            // Note: Some broadcasts require testing phase first depending on monitorStream settings
             try {
               await youtube.liveBroadcasts.transition({
                 id: broadcast_id,
                 broadcastStatus: 'testing',
                 part: ['id', 'status']
               });
-              console.log(`Transitioned broadcast ${broadcast_id} to testing. Waiting 5s before going live...`);
+              console.log(`Transitioned broadcast ${broadcast_id} to testing.`);
               await new Promise(resolve => setTimeout(resolve, 5000));
             } catch (testErr) {
-              console.log(`Could not transition to testing (might not be required or already testing): ${testErr.message}`);
+              console.log(`Could not transition to testing (might not be required): ${testErr.message}`);
             }
 
             await youtube.liveBroadcasts.transition({
@@ -969,3 +966,8 @@ async function getNetworkStats() {
     });
   }
 });
+
+/*
+
+*/
+
