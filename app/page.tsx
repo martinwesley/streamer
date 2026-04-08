@@ -170,7 +170,10 @@ export default function Dashboard() {
       const res = await fetch("/api/youtube/broadcasts");
       if (res.ok) {
         const data = await res.json();
+        console.log("Broadcasts data:", data);
         setBroadcasts(data.broadcasts);
+      } else {
+        console.error("Failed to fetch broadcasts, status:", res.status);
       }
     } catch (err) {
       console.error("Failed to fetch broadcasts", err);

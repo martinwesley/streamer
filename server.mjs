@@ -355,13 +355,17 @@ app.prepare().then(async () => {
       const response = await youtube.liveBroadcasts.list({
         part: 'snippet,status',
         mine: true,
-        maxResults: 50
+        maxResults: 50,
+        broadcastType: 'all'
       });
+      console.log('YouTube broadcasts response:', JSON.stringify(response.data.items, null, 2));
+      console.log('Total items:', response.data.items?.length);
 
       const broadcasts = response.data.items?.filter(item => 
         item.status?.lifeCycleStatus === 'upcoming' || 
         item.status?.lifeCycleStatus === 'ready' || 
-        item.status?.lifeCycleStatus === 'created'
+        item.status?.lifeCycleStatus === 'created' ||
+        item.status?.lifeCycleStatus === 'active'
       ).map(item => ({
         id: item.id,
         title: item.snippet?.title,
