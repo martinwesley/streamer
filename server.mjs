@@ -466,17 +466,60 @@ app.prepare().then(async () => {
     // Send back the importId immediately so client can poll
     res.json({ success: true, importId });
 
+    // Helper function to extract Google Drive file ID and construct download URL
+    function getGoogleDriveDownloadUrl(url) {
+      try {
+        // Handle various Google Drive URL formats
+        let fileId = null;
+        
+        // Format: https://drive.google.com/file/d/{fileId}/view
+        const fileViewMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+        if (fileViewMatch) {
+          fileId = fileViewMatch[1];
+        }
+        
+        // Format: https://drive.google.com/open?id={fileId}
+        if (!fileId && url.includes('drive.google.com/open?id=')) {
+          const urlObj = new URL(url);
+          fileId = urlObj.searchParams.get('id');
+        }
+        
+        // Format: https://docs.google.com/document/d/{fileId}/edit (for Google Docs files)
+        if (!fileId) {
+          const docsMatch = url.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
+          if (docsMatch) {
+            fileId = docsMatch[1];
+          }
+        }
+        
+        // Format: https://drive.google.com/uc?id={fileId} (already a download link)
+        if (!fileId && url.includes('drive.google.com/uc?id=')) {
+          const urlObj = new URL(url);
+          fileId = urlObj.searchParams.get('id');
+        }
+        
+        if (fileId) {
+          // Use the export=download parameter for direct download
+          return `https://drive.google.com/uc?export=download&id=${fileId}`;
+        }
+        
+        return null; // Not a valid Google Drive URL
+      } catch (error) {
+        console.error('Error parsing Google Drive URL:', error);
+        return null;
+      }
+    }
+
     try {
       const filename = Date.now() + '-imported.mp4';
       const destPath = path.join(uploadsDir, filename);
       
       let downloadUrl = url;
-      const gdriveMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
-      if (gdriveMatch && gdriveMatch[1]) {
-        downloadUrl = `https://drive.google.com/uc?export=download&id=${gdriveMatch[1]}`;
-      } else if (url.includes('drive.google.com/open?id=')) {
-        const id = new URL(url).searchParams.get('id');
-        if (id) downloadUrl = `https://drive.google.com/uc?export=download&id=${id}`;
+
+      // Check if it's a Google Drive URL and convert to download URL
+      const gdriveDownloadUrl = getGoogleDriveDownloadUrl(url);
+      if (gdriveDownloadUrl) {
+        downloadUrl = gdriveDownloadUrl;
       }
 
       let response = await fetch(downloadUrl, {
