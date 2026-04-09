@@ -223,7 +223,7 @@ app.prepare().then(async () => {
     
     const url = client.generateAuthUrl({
       access_type: 'offline',
-      scope: ['https://www.googleapis.com/auth/youtube.force-ssl', 'https://www.googleapis.com/auth/youtube.readonly'],
+      scope: ['https://www.googleapis.com/auth/youtube'],
       prompt: 'consent',
       state: token
     });
