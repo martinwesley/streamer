@@ -174,9 +174,11 @@ export default function Dashboard() {
         setBroadcasts(data.broadcasts);
       } else {
         console.error("Failed to fetch broadcasts, status:", res.status);
+        toast.error("Failed to fetch YouTube broadcasts");
       }
     } catch (err) {
       console.error("Failed to fetch broadcasts", err);
+      toast.error("Failed to fetch YouTube broadcasts");
     }
   };
 
@@ -766,6 +768,7 @@ export default function Dashboard() {
                             value={scheduledFor} 
                             onChange={e => setScheduledFor(e.target.value)} 
                             required 
+                            disabled={!!broadcastId}
                             style={{ colorScheme: 'dark' }}
                           />
                         </div>
