@@ -242,6 +242,141 @@ async function authenticateToken(req, res, next) {
   }
 }
 
+function extractFileId(driveUrl) {
+  let match = driveUrl.match(/\/file\/d\/([^\/]+)/);
+  if (match) return match[1];
+
+  match = driveUrl.match(/\?id=([^&]+)/);
+  if (match) return match[1];
+
+  match = driveUrl.match(/\/d\/([^\/]+)/);
+  if (match) return match[1];
+
+  if (/^[a-zA-Z0-9_-]{25,}$/.test(driveUrl.trim())) {
+    return driveUrl.trim();
+  }
+
+  throw new Error('Invalid Google Drive URL format');
+}
+
+function extractCookies(response) {
+  const cookies = response.headers.getSetCookie ? response.headers.getSetCookie() : [response.headers.get('set-cookie')].filter(Boolean);
+  return cookies.map(c => c.split(';')[0]).join('; ');
+}
+
+function parseConfirmationPage(html, fileId) {
+  const urls = [];
+
+  const formActionMatch = html.match(/action="([^"]+)"/);
+  if (formActionMatch) {
+    let formAction = formActionMatch[1].replace(/&amp;/g, '&');
+    if (formAction.startsWith('/')) {
+      formAction = 'https://drive.google.com' + formAction;
+    }
+
+    const hiddenInputs = html.match(/<input[^>]+type="hidden"[^>]*>/gi) || [];
+    const params = new URLSearchParams();
+
+    for (const input of hiddenInputs) {
+      const nameMatch = input.match(/name="([^"]+)"/);
+      const valueMatch = input.match(/value="([^"]*)"/);
+      if (nameMatch) {
+        params.append(nameMatch[1], valueMatch ? valueMatch[1] : '');
+      }
+    }
+
+    const paramStr = params.toString();
+    if (paramStr) {
+      urls.push(formAction + (formAction.includes('?') ? '&' : '?') + paramStr);
+    }
+  }
+
+  const confirmMatch = html.match(/confirm=([0-9A-Za-z_-]+)/);
+  const uuidMatch = html.match(/uuid=([0-9a-f-]+)/i);
+
+  let baseUrl = `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t`;
+  if (confirmMatch) baseUrl += `&confirm=${confirmMatch[1]}`;
+  if (uuidMatch) baseUrl += `&uuid=${uuidMatch[1]}`;
+  urls.push(baseUrl);
+
+  urls.push(`https://drive.usercontent.google.com/download?id=${fileId}&export=download&authuser=0&confirm=t`);
+  urls.push(`https://drive.google.com/uc?export=download&id=${fileId}&confirm=t`);
+
+  return urls;
+}
+
+async function getDirectDownloadUrl(driveUrl) {
+  let fileId;
+  try {
+    fileId = extractFileId(driveUrl);
+  } catch (error) {
+    throw new Error('Invalid Google Drive URL or file ID');
+  }
+
+  const commonHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Connection': 'keep-alive'
+  };
+
+  const initialUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+
+  let cookies = '';
+  let html = '';
+
+  try {
+    const initialResponse = await fetch(initialUrl, {
+      method: 'GET',
+      headers: commonHeaders,
+      redirect: 'follow'
+    });
+
+    if (!initialResponse.ok && initialResponse.status >= 500) {
+      throw new Error('Initial request failed');
+    }
+
+    cookies = extractCookies(initialResponse);
+
+    const contentType = initialResponse.headers.get('content-type') || '';
+    if (contentType.includes('text/html')) {
+      html = await initialResponse.text();
+    } else {
+      // Small file - no confirmation page
+      return {
+        directUrl: initialUrl,
+        cookies
+      };
+    }
+  } catch (error) {
+    console.warn('Initial request failed, using fallback URL');
+    return {
+      directUrl: `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t`,
+      cookies: ''
+    };
+  }
+
+  const candidateUrls = parseConfirmationPage(html, fileId);
+
+  candidateUrls.push(`https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t`);
+  candidateUrls.push(`https://drive.usercontent.google.com/download?id=${fileId}&export=download&authuser=0&confirm=t`);
+  candidateUrls.push(`https://drive.google.com/uc?export=download&id=${fileId}&confirm=t`);
+
+  let bestUrl = candidateUrls[0];
+  for (const url of candidateUrls) {
+    if (url.includes('confirm=') && !url.includes('confirm=t')) {
+      bestUrl = url;
+      break;
+    }
+  }
+
+  console.log(`✅ Direct download URL generated for large file: ${bestUrl}`);
+  return {
+    directUrl: bestUrl,
+    cookies
+  };
+}
+
 app.prepare().then(async () => {
   await initDb();
 
@@ -466,88 +601,30 @@ app.prepare().then(async () => {
     // Send back the importId immediately so client can poll
     res.json({ success: true, importId });
 
-    // Helper function to extract Google Drive file ID and construct download URL
-    function getGoogleDriveDownloadUrl(url) {
-      try {
-        // Handle various Google Drive URL formats
-        let fileId = null;
-        
-        // Format: https://drive.google.com/file/d/{fileId}/view
-        const fileViewMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
-        if (fileViewMatch) {
-          fileId = fileViewMatch[1];
-        }
-        
-        // Format: https://drive.google.com/open?id={fileId}
-        if (!fileId && url.includes('drive.google.com/open?id=')) {
-          const urlObj = new URL(url);
-          fileId = urlObj.searchParams.get('id');
-        }
-        
-        // Format: https://docs.google.com/document/d/{fileId}/edit (for Google Docs files)
-        if (!fileId) {
-          const docsMatch = url.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
-          if (docsMatch) {
-            fileId = docsMatch[1];
-          }
-        }
-        
-        // Format: https://drive.google.com/uc?id={fileId} (already a download link)
-        if (!fileId && url.includes('drive.google.com/uc?id=')) {
-          const urlObj = new URL(url);
-          fileId = urlObj.searchParams.get('id');
-        }
-        
-        if (fileId) {
-          // Use the export=download parameter for direct download
-          return `https://drive.google.com/uc?export=download&id=${fileId}`;
-        }
-        
-        return null; // Not a valid Google Drive URL
-      } catch (error) {
-        console.error('Error parsing Google Drive URL:', error);
-        return null;
-      }
-    }
-
     try {
       const filename = Date.now() + '-imported.mp4';
       const destPath = path.join(uploadsDir, filename);
       
       let downloadUrl = url;
+      let driveCookies = '';
 
-      // Check if it's a Google Drive URL and convert to download URL
-      const gdriveDownloadUrl = getGoogleDriveDownloadUrl(url);
-      if (gdriveDownloadUrl) {
-        downloadUrl = gdriveDownloadUrl;
+      if (url.includes('drive.google.com')) {
+        try {
+          const result = await getDirectDownloadUrl(url);
+          downloadUrl = result.directUrl;
+          driveCookies = result.cookies;
+        } catch (error) {
+          console.error('Error getting direct Google Drive URL:', error);
+          // Fall back to original URL
+        }
       }
 
-      let response = await fetch(downloadUrl, {
+      const response = await fetch(downloadUrl, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          ...(driveCookies ? { 'Cookie': driveCookies } : {})
         }
       });
-      
-      // Check if it's a Google Drive virus scan warning page
-      if (response.ok && response.headers.get('content-type')?.includes('text/html')) {
-        const text = await response.text();
-        const confirmMatch = text.match(/confirm=([a-zA-Z0-9_-]+)/);
-        if (confirmMatch && confirmMatch[1]) {
-          const confirmUrl = `${downloadUrl}&confirm=${confirmMatch[1]}`;
-          response = await fetch(confirmUrl, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-          });
-        } else {
-          // Re-fetch because we consumed the body
-          response = await fetch(downloadUrl, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-          });
-        }
-      }
 
       if (!response.ok) {
         importProgressMap.set(importId, { progress: 0, status: 'failed', error: 'Failed to download file' });

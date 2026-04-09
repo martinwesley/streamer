@@ -699,9 +699,9 @@ export default function Dashboard() {
                               Connect YouTube Account
                             </Button>
                           ) : (
-                            <div className="space-y-2">
+                            <div className="flex items-center space-x-2">
                               <Select value={broadcastId || undefined} onValueChange={(val) => setBroadcastId(val || "")}>
-                                <SelectTrigger className="bg-black/50 border-white/10 text-white">
+                                <SelectTrigger className="bg-black/50 border-white/10 text-white flex-1">
                                   <SelectValue placeholder="Select a broadcast">
                                     {broadcastId ? (broadcasts.find(b => b.id === broadcastId)?.title || "Unknown Broadcast") : "Select a broadcast"}
                                   </SelectValue>
@@ -722,8 +722,8 @@ export default function Dashboard() {
                                   ))}
                                 </SelectContent>
                               </Select>
-                              <Button onClick={handleYouTubeDisconnect} variant="outline" size="sm" className="w-full">
-                                Disconnect YouTube Account
+                              <Button onClick={handleYouTubeDisconnect} variant="outline" size="sm" className="p-2" title="Disconnect YouTube Account">
+                                <LogOut className="h-4 w-4" />
                               </Button>
                             </div>
                           )}
