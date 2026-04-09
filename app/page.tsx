@@ -162,6 +162,22 @@ export default function Dashboard() {
     window.location.href = "/api/youtube/auth";
   };
 
+  const handleYouTubeDisconnect = async () => {
+    try {
+      const res = await fetch("/api/youtube/disconnect", { method: "POST" });
+      if (res.ok) {
+        setYoutubeAuthenticated(false);
+        setBroadcasts([]);
+        setBroadcastId("");
+        toast.success("Disconnected from YouTube");
+      } else {
+        toast.error("Failed to disconnect");
+      }
+    } catch (error) {
+      toast.error("Error disconnecting from YouTube");
+    }
+  };
+
   const handleSaveKey = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newKeyName || !newKeyRtmp || !newKeyStream) return toast.error("Please fill all fields");
@@ -683,28 +699,33 @@ export default function Dashboard() {
                               Connect YouTube Account
                             </Button>
                           ) : (
-                            <Select value={broadcastId || undefined} onValueChange={(val) => setBroadcastId(val || "")}>
-                              <SelectTrigger className="bg-black/50 border-white/10 text-white">
-                                <SelectValue placeholder="Select a broadcast">
-                                  {broadcastId ? (broadcasts.find(b => b.id === broadcastId)?.title || "Unknown Broadcast") : "Select a broadcast"}
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent className="bg-background border-white/10">
-                                {broadcasts.map(b => (
-                                  <SelectItem key={b.id} value={b.id}>
-                                    <div className="flex items-center space-x-2">
-                                      {b.thumbnail && <Image src={b.thumbnail} alt="" width={32} height={32} className="rounded" />}
-                                      <div>
-                                        <div className="font-medium">{b.title}</div>
-                                        <div className="text-sm text-muted-foreground">
-                                          {new Date(b.scheduledStartTime).toLocaleString()}
+                            <div className="space-y-2">
+                              <Select value={broadcastId || undefined} onValueChange={(val) => setBroadcastId(val || "")}>
+                                <SelectTrigger className="bg-black/50 border-white/10 text-white">
+                                  <SelectValue placeholder="Select a broadcast">
+                                    {broadcastId ? (broadcasts.find(b => b.id === broadcastId)?.title || "Unknown Broadcast") : "Select a broadcast"}
+                                  </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent className="bg-background border-white/10">
+                                  {broadcasts.map(b => (
+                                    <SelectItem key={b.id} value={b.id}>
+                                      <div className="flex items-center space-x-2">
+                                        {b.thumbnail && <Image src={b.thumbnail} alt="" width={32} height={32} className="rounded" />}
+                                        <div>
+                                          <div className="font-medium">{b.title}</div>
+                                          <div className="text-sm text-muted-foreground">
+                                            {new Date(b.scheduledStartTime).toLocaleString()}
+                                          </div>
                                         </div>
                                       </div>
-                                    </div>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Button onClick={handleYouTubeDisconnect} variant="outline" size="sm" className="w-full">
+                                Disconnect YouTube Account
+                              </Button>
+                            </div>
                           )}
                         </div>
                         <div className="md:col-span-2 pt-2">

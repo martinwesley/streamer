@@ -395,6 +395,16 @@ app.prepare().then(async () => {
     }
   });
 
+  server.post('/api/youtube/disconnect', authenticateToken, async (req, res) => {
+    try {
+      await db.execute('DELETE FROM youtube_tokens WHERE id = 1');
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Disconnect error:', error);
+      res.status(500).json({ error: 'Failed to disconnect' });
+    }
+  });
+
   server.get('/api/saved-keys', authenticateToken, async (req, res) => {
     const result = await db.execute({
       sql: 'SELECT * FROM saved_keys WHERE user_id = ? ORDER BY created_at DESC',
