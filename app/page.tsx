@@ -40,24 +40,16 @@ export default function Dashboard() {
   
   // Stream state
   const [selectedVideo, setSelectedVideo] = useState("");
-  const [rtmpUrl, setRtmpUrl] = useState("rtmp://a.rtmp.youtube.com/live2");
+  const [rtmpUrl, setRtmpUrl] = useState("");
   const [streamKey, setStreamKey] = useState("");
-  const [broadcastId, setBroadcastId] = useState("");
-  const [scheduledFor, setScheduledFor] = useState("");
-  const [scheduling, setScheduling] = useState(false);
   const [selectedSavedKey, setSelectedSavedKey] = useState("");
-  const [broadcasts, setBroadcasts] = useState<any[]>([]);
 
   // Saved Keys state
   const [savedKeys, setSavedKeys] = useState<any[]>([]);
   const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyRtmp, setNewKeyRtmp] = useState("rtmp://a.rtmp.youtube.com/live2");
+  const [newKeyRtmp, setNewKeyRtmp] = useState("");
   const [newKeyStream, setNewKeyStream] = useState("");
   const [savingKey, setSavingKey] = useState(false);
-
-  // YouTube state
-  const [youtubeChannel, setYoutubeChannel] = useState<any>(null);
-  const [youtubeLoading, setYoutubeLoading] = useState(false);
 
   useEffect(() => {
     fetchUser();
@@ -81,36 +73,6 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchYouTubeChannel = async () => {
-    setYoutubeLoading(true);
-    try {
-      const res = await fetch("/api/youtube/channel");
-      if (res.ok) {
-        const data = await res.json();
-        setYoutubeChannel(data.channel);
-      } else {
-        setYoutubeChannel(null);
-      }
-    } catch (err) {
-      console.error("Failed to fetch YouTube channel", err);
-    } finally {
-      setYoutubeLoading(false);
-    }
-  };
-
-  const handleDisconnectYouTube = async () => {
-    try {
-      const res = await fetch("/api/youtube/disconnect", { method: "POST" });
-      if (res.ok) {
-        toast.success("YouTube disconnected");
-        fetchUser();
-        setYoutubeChannel(null);
-      }
-    } catch (err) {
-      toast.error("Failed to disconnect YouTube");
-    }
-  };
-
   const fetchStats = async () => {
     try {
       const res = await fetch("/api/system-stats");
@@ -132,10 +94,6 @@ export default function Dashboard() {
         fetchVideos();
         fetchStreams();
         fetchSavedKeys();
-        if (data.user.youtube_tokens) {
-          fetchBroadcasts();
-          fetchYouTubeChannel();
-        }
       } else {
         router.push("/login");
       }
@@ -162,23 +120,6 @@ export default function Dashboard() {
     if (res.ok) {
       const data = await res.json();
       setStreams(data.streams);
-    }
-  };
-
-  const fetchBroadcasts = async () => {
-    try {
-      const res = await fetch("/api/youtube/broadcasts");
-      if (res.ok) {
-        const data = await res.json();
-        console.log("Broadcasts data:", data);
-        setBroadcasts(data.broadcasts);
-      } else {
-        console.error("Failed to fetch broadcasts, status:", res.status);
-        toast.error("Failed to fetch YouTube broadcasts");
-      }
-    } catch (err) {
-      console.error("Failed to fetch broadcasts", err);
-      toast.error("Failed to fetch YouTube broadcasts");
     }
   };
 
@@ -318,11 +259,10 @@ export default function Dashboard() {
 
   const handleSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedVideo || (!broadcastId && (!rtmpUrl || !streamKey)) || !scheduledFor) {
+    if (!selectedVideo || (!rtmpUrl || !streamKey)) {
       return toast.error("Please fill all fields");
     }
     
-    setScheduling(true);
     try {
       const res = await fetch("/api/streams", {
         method: "POST",
@@ -331,16 +271,12 @@ export default function Dashboard() {
           video_id: selectedVideo,
           rtmp_url: rtmpUrl,
           stream_key: streamKey,
-          broadcast_id: broadcastId,
-          scheduled_for: scheduledFor,
         }),
       });
       if (res.ok) {
         toast.success("Stream scheduled successfully");
         setSelectedVideo("");
         setStreamKey("");
-        setBroadcastId("");
-        setScheduledFor("");
         setSelectedSavedKey("");
         fetchStreams();
       } else {
@@ -348,8 +284,6 @@ export default function Dashboard() {
       }
     } catch (err) {
       toast.error("An error occurred while scheduling");
-    } finally {
-      setScheduling(false);
     }
   };
 
@@ -418,7 +352,6 @@ export default function Dashboard() {
             { id: "streams", label: "Streams", icon: Calendar },
             { id: "videos", label: "Videos", icon: Video },
             { id: "keys", label: "Stream Keys", icon: Key },
-            { id: "youtube", label: "YouTube", icon: Youtube },
           ].map((item) => (
             <button
               key={item.id}
@@ -445,7 +378,7 @@ export default function Dashboard() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-white truncate">{user.username}</p>
               <p className="text-xs text-muted-foreground truncate">
-                {user.youtube_tokens ? <span className="text-green-400">Connected to youtube.</span> : <span className="text-red-400">Not Connected</span>}
+                {user.email}
               </p>
             </div>
           </div>
@@ -679,74 +612,14 @@ export default function Dashboard() {
                             </SelectContent>
                           </Select>
                         </div>
-                        <div className="space-y-2">
-                          <Label className="text-white/80">Upcoming YouTube Streams</Label>
-                          {user.youtube_tokens ? (
-                            <Select 
-                              value={broadcastId || undefined} 
-                              onValueChange={(val) => {
-                                const newBroadcastId = val === "none" ? "" : (val || "");
-                                setBroadcastId(newBroadcastId);
-                                if (newBroadcastId) {
-                                  const b = broadcasts.find(b => b.id === newBroadcastId);
-                                  if (b && b.scheduledStartTime) {
-                                    // Convert ISO string to datetime-local format (YYYY-MM-DDThh:mm)
-                                    const date = new Date(b.scheduledStartTime);
-                                    const localDateTime = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-                                    setScheduledFor(localDateTime);
-                                  }
-                                }
-                              }}
-                            >
-                              <SelectTrigger className="bg-black/50 border-white/10 text-white h-auto py-3">
-                                <SelectValue placeholder="Select an upcoming stream">
-                                  {broadcastId ? (
-                                    (() => {
-                                      const b = broadcasts.find(b => b.id === broadcastId);
-                                      return b ? (
-                                        <div className="flex items-center gap-3">
-                                          {b.thumbnail && <img src={b.thumbnail} alt={b.title} className="w-10 h-7 object-cover rounded" />}
-                                          <span className="truncate">{b.title}</span>
-                                        </div>
-                                      ) : "Unknown Broadcast";
-                                    })()
-                                  ) : "Select an upcoming stream"}
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent className="bg-background border-white/10">
-                                <SelectItem value="none">None</SelectItem>
-                                {broadcasts.map(b => (
-                                  <SelectItem key={b.id} value={b.id} className="py-2">
-                                    <div className="flex items-center gap-3">
-                                      {b.thumbnail && <img src={b.thumbnail} alt={b.title} className="w-12 h-8 object-cover rounded" />}
-                                      <div className="flex flex-col">
-                                        <span className="font-medium truncate max-w-[200px]">{b.title}</span>
-                                        <span className="text-xs text-muted-foreground">{new Date(b.scheduledStartTime).toLocaleString()}</span>
-                                      </div>
-                                    </div>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <Input 
-                              value={broadcastId} 
-                              onChange={e => setBroadcastId(e.target.value)} 
-                              placeholder="Connect YouTube to select an upcoming stream" 
-                              disabled
-                            />
-                          )}
-                        </div>
                         
-                        {!broadcastId && (
-                          <>
                             <div className="space-y-2">
                               <Label className="text-white/80">RTMP URL</Label>
                               <Input 
                                 value={rtmpUrl} 
                                 onChange={e => setRtmpUrl(e.target.value)} 
                                 placeholder="rtmp://a.rtmp.youtube.com/live2" 
-                                required={!broadcastId} 
+                                required
                               />
                             </div>
                             <div className="space-y-2">
@@ -756,25 +629,12 @@ export default function Dashboard() {
                                 value={streamKey} 
                                 onChange={e => setStreamKey(e.target.value)} 
                                 placeholder="xxxx-xxxx-xxxx-xxxx" 
-                                required={!broadcastId} 
+                                required
                               />
                             </div>
-                          </>
-                        )}
-                        <div className="space-y-2">
-                          <Label className="text-white/80">Schedule Time</Label>
-                          <Input 
-                            type="datetime-local" 
-                            value={scheduledFor} 
-                            onChange={e => setScheduledFor(e.target.value)} 
-                            required 
-                            disabled={!!broadcastId}
-                            style={{ colorScheme: 'dark' }}
-                          />
-                        </div>
                         <div className="md:col-span-2 pt-2">
-                          <Button type="submit" disabled={scheduling} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
-                            {scheduling ? "Scheduling..." : "Schedule Stream"}
+                          <Button type="submit" className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
+                            Schedule Stream
                           </Button>
                         </div>
                       </form>
