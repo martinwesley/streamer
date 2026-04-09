@@ -314,7 +314,7 @@ app.prepare().then(async () => {
     try {
       const clientId = process.env.GOOGLE_CLIENT_ID;
       const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-      const redirectUri = `${req.protocol}://${req.get('host')}/api/youtube/callback`;
+      const redirectUri = `${req.protocol}s://${req.get('host')}/api/youtube/callback`;
 
       const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
         method: 'POST',
