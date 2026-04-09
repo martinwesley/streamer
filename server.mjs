@@ -301,7 +301,7 @@ app.prepare().then(async () => {
   // YouTube OAuth routes
   server.get('/api/youtube/auth', (req, res) => {
     const clientId = process.env.GOOGLE_CLIENT_ID;
-    const redirectUri = `${req.protocol}://${req.get('host')}/api/youtube/callback`;
+    const redirectUri = `${req.protocol}s://${req.get('host')}/api/youtube/callback`;
     const scope = 'https://www.googleapis.com/auth/youtube.force-ssl';
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&response_type=code&access_type=offline&prompt=consent`;
     res.redirect(authUrl);
