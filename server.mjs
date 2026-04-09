@@ -60,6 +60,87 @@ const db = createClient({ url: `file:${targetDbPath}` });
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'super-secret-key-change-in-prod');
 
+async function refreshYouTubeToken() {
+  try {
+    const result = await db.execute('SELECT * FROM youtube_tokens WHERE id = 1');
+    const token = result.rows[0];
+    if (!token || !token.refresh_token) return false;
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: token.refresh_token,
+        grant_type: 'refresh_token',
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error_description || data.error);
+
+    const expiresAt = new Date(Date.now() + data.expires_in * 1000);
+    await db.execute({
+      sql: 'UPDATE youtube_tokens SET access_token = ?, expires_at = ? WHERE id = 1',
+      args: [data.access_token, expiresAt.toISOString()],
+    });
+
+    return true;
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    return false;
+  }
+}
+
+async function getYouTubeAccessToken() {
+  const result = await db.execute('SELECT * FROM youtube_tokens WHERE id = 1');
+  const token = result.rows[0];
+  if (!token) return null;
+
+  const now = new Date();
+  const expiresAt = new Date(token.expires_at);
+  if (now >= expiresAt) {
+    const refreshed = await refreshYouTubeToken();
+    if (!refreshed) return null;
+
+    // Fetch updated token
+    const updatedResult = await db.execute('SELECT * FROM youtube_tokens WHERE id = 1');
+    return updatedResult.rows[0]?.access_token;
+  }
+
+  return token.access_token;
+}
+
+async function endYouTubeBroadcast(broadcastId) {
+  try {
+    const accessToken = await getYouTubeAccessToken();
+    if (!accessToken) {
+      console.error('No YouTube access token available for ending broadcast');
+      return;
+    }
+
+    // First transition to complete
+    const completeResponse = await fetch(`https://www.googleapis.com/youtube/v3/liveBroadcasts/transition?broadcastStatus=complete&id=${broadcastId}&part=status`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    });
+
+    if (!completeResponse.ok) {
+      const error = await completeResponse.text();
+      console.error('Failed to complete YouTube broadcast:', error);
+      return;
+    }
+
+    console.log(`Successfully ended YouTube broadcast ${broadcastId}`);
+  } catch (error) {
+    console.error('Error ending YouTube broadcast:', error);
+  }
+}
+
 async function initDb() {
   await db.execute(`
     CREATE TABLE IF NOT EXISTS users (
@@ -87,6 +168,7 @@ async function initDb() {
       rtmp_url TEXT,
       stream_key TEXT,
       scheduled_for DATETIME,
+      broadcast_id TEXT,
       status TEXT DEFAULT 'pending',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -98,6 +180,16 @@ async function initDb() {
       name TEXT,
       rtmp_url TEXT,
       stream_key TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS youtube_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      access_token TEXT,
+      refresh_token TEXT,
+      expires_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -204,6 +296,103 @@ app.prepare().then(async () => {
 
   server.get('/api/auth/me', authenticateToken, (req, res) => {
     res.json({ user: req.user });
+  });
+
+  // YouTube OAuth routes
+  server.get('/api/youtube/auth', (req, res) => {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const redirectUri = `${req.protocol}://${req.get('host')}/api/youtube/callback`;
+    const scope = 'https://www.googleapis.com/auth/youtube.force-ssl';
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&response_type=code&access_type=offline&prompt=consent`;
+    res.redirect(authUrl);
+  });
+
+  server.get('/api/youtube/callback', async (req, res) => {
+    const { code } = req.query;
+    if (!code) return res.status(400).send('No code provided');
+
+    try {
+      const clientId = process.env.GOOGLE_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+      const redirectUri = `${req.protocol}://${req.get('host')}/api/youtube/callback`;
+
+      const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code: code.toString(),
+          grant_type: 'authorization_code',
+          redirect_uri: redirectUri,
+        }),
+      });
+
+      const tokenData = await tokenResponse.json();
+      if (!tokenResponse.ok) throw new Error(tokenData.error_description || tokenData.error);
+
+      const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000);
+
+      // Store tokens
+      await db.execute({
+        sql: 'INSERT OR REPLACE INTO youtube_tokens (id, access_token, refresh_token, expires_at) VALUES (1, ?, ?, ?)',
+        args: [tokenData.access_token, tokenData.refresh_token, expiresAt.toISOString()],
+      });
+
+      res.redirect('/?auth=success');
+    } catch (error) {
+      console.error('OAuth callback error:', error);
+      res.status(500).send('Authentication failed');
+    }
+  });
+
+  server.get('/api/youtube/auth-status', async (req, res) => {
+    try {
+      const result = await db.execute('SELECT * FROM youtube_tokens WHERE id = 1');
+      const token = result.rows[0];
+      if (!token) return res.json({ authenticated: false });
+
+      const now = new Date();
+      const expiresAt = new Date(token.expires_at);
+      if (now >= expiresAt) {
+        // Try to refresh token
+        const refreshed = await refreshYouTubeToken();
+        if (!refreshed) return res.json({ authenticated: false });
+      }
+
+      res.json({ authenticated: true });
+    } catch (error) {
+      console.error('Auth status check error:', error);
+      res.status(500).json({ error: 'Failed to check auth status' });
+    }
+  });
+
+  server.get('/api/youtube/broadcasts', authenticateToken, async (req, res) => {
+    try {
+      const accessToken = await getYouTubeAccessToken();
+      if (!accessToken) return res.status(401).json({ error: 'YouTube not authenticated' });
+
+      const response = await fetch('https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status&broadcastStatus=upcoming&maxResults=50', {
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch broadcasts');
+
+      const data = await response.json();
+      const broadcasts = data.items.map(item => ({
+        id: item.id,
+        title: item.snippet.title,
+        description: item.snippet.description,
+        thumbnail: item.snippet.thumbnails.default?.url,
+        scheduledStartTime: item.snippet.scheduledStartTime,
+        status: item.status.lifeCycleStatus,
+      }));
+
+      res.json({ broadcasts });
+    } catch (error) {
+      console.error('Broadcasts fetch error:', error);
+      res.status(500).json({ error: 'Failed to fetch broadcasts' });
+    }
   });
 
   server.get('/api/saved-keys', authenticateToken, async (req, res) => {
@@ -462,7 +651,7 @@ async function getNetworkStats() {
   });
 
   server.post('/api/streams', authenticateToken, async (req, res) => {
-    let { video_id, rtmp_url, stream_key, scheduled_for } = req.body;
+    let { video_id, rtmp_url, stream_key, scheduled_for, broadcast_id } = req.body;
     
     if (!video_id || !rtmp_url || !stream_key || !scheduled_for) {
       return res.status(400).json({ error: 'Missing fields' });
@@ -470,8 +659,8 @@ async function getNetworkStats() {
 
     try {
       const result = await db.execute({
-        sql: 'INSERT INTO streams (user_id, video_id, rtmp_url, stream_key, scheduled_for) VALUES (?, ?, ?, ?, ?)',
-        args: [req.user.id, video_id, rtmp_url, stream_key, scheduled_for]
+        sql: 'INSERT INTO streams (user_id, video_id, rtmp_url, stream_key, scheduled_for, broadcast_id) VALUES (?, ?, ?, ?, ?, ?)',
+        args: [req.user.id, video_id, rtmp_url, stream_key, scheduled_for, broadcast_id || null]
       });
       res.json({ success: true, streamId: Number(result.lastInsertRowid) });
     } catch (err) {
@@ -659,10 +848,18 @@ async function getNetworkStats() {
     ffmpeg.on('close', async (code) => {
       activeStreams.delete(id);
       console.log(`ffmpeg process for stream ${id} exited with code ${code}`);
+      const status = code === 0 ? 'completed' : 'failed';
       db.execute({
         sql: "UPDATE streams SET status = ? WHERE id = ?",
-        args: [code === 0 ? 'completed' : 'failed', id]
+        args: [status, id]
       });
+
+      // If stream completed successfully and has broadcast_id, end YouTube broadcast after 5 seconds
+      if (code === 0 && stream.broadcast_id) {
+        setTimeout(() => {
+          endYouTubeBroadcast(stream.broadcast_id);
+        }, 5000);
+      }
     });
   }
 });

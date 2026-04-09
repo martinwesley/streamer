@@ -16,6 +16,7 @@ import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Video, Key, Calenda
 import axios from "axios";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
+import Image from "next/image";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -47,6 +48,7 @@ export default function Dashboard() {
   const [scheduling, setScheduling] = useState(false);
   const [selectedSavedKey, setSelectedSavedKey] = useState("");
   const [broadcasts, setBroadcasts] = useState<any[]>([]);
+  const [youtubeAuthenticated, setYoutubeAuthenticated] = useState(false);
 
   // Saved Keys state
   const [savedKeys, setSavedKeys] = useState<any[]>([]);
@@ -58,6 +60,15 @@ export default function Dashboard() {
   useEffect(() => {
     fetchUser();
     fetchStats();
+    
+    // Check for YouTube auth success
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('auth') === 'success') {
+      checkYouTubeAuth();
+      // Clean up URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+    
     const streamsInterval = setInterval(() => {
       fetchStreams();
       fetchVideos();
@@ -90,6 +101,7 @@ export default function Dashboard() {
         fetchVideos();
         fetchStreams();
         fetchSavedKeys();
+        checkYouTubeAuth();
       } else {
         router.push("/login");
       }
@@ -125,6 +137,29 @@ export default function Dashboard() {
       const data = await res.json();
       setSavedKeys(data.keys);
     }
+  };
+
+  const checkYouTubeAuth = async () => {
+    const res = await fetch("/api/youtube/auth-status");
+    if (res.ok) {
+      const data = await res.json();
+      setYoutubeAuthenticated(data.authenticated);
+      if (data.authenticated) {
+        fetchBroadcasts();
+      }
+    }
+  };
+
+  const fetchBroadcasts = async () => {
+    const res = await fetch("/api/youtube/broadcasts");
+    if (res.ok) {
+      const data = await res.json();
+      setBroadcasts(data.broadcasts || []);
+    }
+  };
+
+  const handleYouTubeAuth = () => {
+    window.location.href = "/api/youtube/auth";
   };
 
   const handleSaveKey = async (e: React.FormEvent) => {
@@ -269,6 +304,7 @@ export default function Dashboard() {
           rtmp_url: rtmpUrl,
           stream_key: streamKey,
           scheduled_for: scheduledFor,
+          broadcast_id: broadcastId || null,
         }),
       });
       if (res.ok) {
@@ -277,6 +313,7 @@ export default function Dashboard() {
         setStreamKey("");
         setScheduledFor("");
         setSelectedSavedKey("");
+        setBroadcastId("");
         fetchStreams();
       } else {
         toast.error("Scheduling failed");
@@ -638,6 +675,37 @@ export default function Dashboard() {
                             required 
                             style={{ colorScheme: 'dark' }}
                           />
+                        </div>
+                        <div className="space-y-2 md:col-span-2">
+                          <Label className="text-white/80">YouTube Broadcast (Optional)</Label>
+                          {!youtubeAuthenticated ? (
+                            <Button onClick={handleYouTubeAuth} variant="outline" className="w-full">
+                              Connect YouTube Account
+                            </Button>
+                          ) : (
+                            <Select value={broadcastId || undefined} onValueChange={(val) => setBroadcastId(val || "")}>
+                              <SelectTrigger className="bg-black/50 border-white/10 text-white">
+                                <SelectValue placeholder="Select a broadcast">
+                                  {broadcastId ? (broadcasts.find(b => b.id === broadcastId)?.title || "Unknown Broadcast") : "Select a broadcast"}
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent className="bg-background border-white/10">
+                                {broadcasts.map(b => (
+                                  <SelectItem key={b.id} value={b.id}>
+                                    <div className="flex items-center space-x-2">
+                                      {b.thumbnail && <Image src={b.thumbnail} alt="" width={32} height={32} className="rounded" />}
+                                      <div>
+                                        <div className="font-medium">{b.title}</div>
+                                        <div className="text-sm text-muted-foreground">
+                                          {new Date(b.scheduledStartTime).toLocaleString()}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
                         </div>
                         <div className="md:col-span-2 pt-2">
                           <Button type="submit" disabled={scheduling} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
