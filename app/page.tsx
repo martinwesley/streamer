@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Video, Key, Calendar, LayoutDashboard, LogOut, Youtube, RefreshCw } from "lucide-react";
+import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Video, Key, Calendar, LayoutDashboard, LogOut, RefreshCw } from "lucide-react";
 import axios from "axios";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
@@ -40,14 +40,18 @@ export default function Dashboard() {
   
   // Stream state
   const [selectedVideo, setSelectedVideo] = useState("");
-  const [rtmpUrl, setRtmpUrl] = useState("");
+  const [rtmpUrl, setRtmpUrl] = useState("rtmp://a.rtmp.youtube.com/live2");
   const [streamKey, setStreamKey] = useState("");
+  const [broadcastId, setBroadcastId] = useState("");
+  const [scheduledFor, setScheduledFor] = useState("");
+  const [scheduling, setScheduling] = useState(false);
   const [selectedSavedKey, setSelectedSavedKey] = useState("");
+  const [broadcasts, setBroadcasts] = useState<any[]>([]);
 
   // Saved Keys state
   const [savedKeys, setSavedKeys] = useState<any[]>([]);
   const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyRtmp, setNewKeyRtmp] = useState("");
+  const [newKeyRtmp, setNewKeyRtmp] = useState("rtmp://a.rtmp.youtube.com/live2");
   const [newKeyStream, setNewKeyStream] = useState("");
   const [savingKey, setSavingKey] = useState(false);
 
@@ -59,15 +63,7 @@ export default function Dashboard() {
       fetchVideos();
     }, 2000);
 
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'YOUTUBE_AUTH_SUCCESS') {
-        toast.success("YouTube connected!");
-        fetchUser();
-      }
-    };
-    window.addEventListener('message', handleMessage);
     return () => {
-      window.removeEventListener('message', handleMessage);
       clearInterval(streamsInterval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -259,10 +255,11 @@ export default function Dashboard() {
 
   const handleSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedVideo || (!rtmpUrl || !streamKey)) {
+    if (!selectedVideo || !rtmpUrl || !streamKey || !scheduledFor) {
       return toast.error("Please fill all fields");
     }
     
+    setScheduling(true);
     try {
       const res = await fetch("/api/streams", {
         method: "POST",
@@ -271,12 +268,14 @@ export default function Dashboard() {
           video_id: selectedVideo,
           rtmp_url: rtmpUrl,
           stream_key: streamKey,
+          scheduled_for: scheduledFor,
         }),
       });
       if (res.ok) {
         toast.success("Stream scheduled successfully");
         setSelectedVideo("");
         setStreamKey("");
+        setScheduledFor("");
         setSelectedSavedKey("");
         fetchStreams();
       } else {
@@ -284,6 +283,8 @@ export default function Dashboard() {
       }
     } catch (err) {
       toast.error("An error occurred while scheduling");
+    } finally {
+      setScheduling(false);
     }
   };
 
@@ -377,9 +378,6 @@ export default function Dashboard() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-white truncate">{user.username}</p>
-              <p className="text-xs text-muted-foreground truncate">
-                {user.email}
-              </p>
             </div>
           </div>
           
@@ -612,29 +610,38 @@ export default function Dashboard() {
                             </SelectContent>
                           </Select>
                         </div>
-                        
-                            <div className="space-y-2">
-                              <Label className="text-white/80">RTMP URL</Label>
-                              <Input 
-                                value={rtmpUrl} 
-                                onChange={e => setRtmpUrl(e.target.value)} 
-                                placeholder="rtmp://a.rtmp.youtube.com/live2" 
-                                required
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label className="text-white/80">Stream Key</Label>
-                              <Input 
-                                type="password"
-                                value={streamKey} 
-                                onChange={e => setStreamKey(e.target.value)} 
-                                placeholder="xxxx-xxxx-xxxx-xxxx" 
-                                required
-                              />
-                            </div>
+                        <div className="space-y-2">
+                          <Label className="text-white/80">RTMP URL</Label>
+                          <Input 
+                            value={rtmpUrl} 
+                            onChange={e => setRtmpUrl(e.target.value)} 
+                            placeholder="rtmp://a.rtmp.youtube.com/live2" 
+                            required 
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-white/80">Stream Key</Label>
+                          <Input 
+                            type="password"
+                            value={streamKey} 
+                            onChange={e => setStreamKey(e.target.value)} 
+                            placeholder="xxxx-xxxx-xxxx-xxxx" 
+                            required 
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-white/80">Schedule Time</Label>
+                          <Input 
+                            type="datetime-local" 
+                            value={scheduledFor} 
+                            onChange={e => setScheduledFor(e.target.value)} 
+                            required 
+                            style={{ colorScheme: 'dark' }}
+                          />
+                        </div>
                         <div className="md:col-span-2 pt-2">
-                          <Button type="submit" className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
-                            Schedule Stream
+                          <Button type="submit" disabled={scheduling} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
+                            {scheduling ? "Scheduling..." : "Schedule Stream"}
                           </Button>
                         </div>
                       </form>
@@ -916,105 +923,6 @@ export default function Dashboard() {
                           </TableBody>
                         </Table>
                       </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-              {activeTab === "youtube" && (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-2xl font-bold tracking-tight text-white">YouTube Integration</h2>
-                  </div>
-
-                  <Card className="glass border-white/5">
-                    <CardHeader>
-                      <CardTitle className="text-white">Connection Status</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {user.youtube_tokens ? (
-                        <div className="space-y-6">
-                          <div className="flex items-center gap-4 p-4 rounded-xl bg-white/5 border border-white/10">
-                            {youtubeLoading ? (
-                              <div className="animate-pulse flex items-center gap-4">
-                                <div className="w-16 h-16 rounded-full bg-white/10"></div>
-                                <div className="space-y-2">
-                                  <div className="h-4 w-32 bg-white/10 rounded"></div>
-                                  <div className="h-3 w-24 bg-white/10 rounded"></div>
-                                </div>
-                              </div>
-                            ) : youtubeChannel ? (
-                              <>
-                                {youtubeChannel.thumbnail ? (
-                                  <img src={youtubeChannel.thumbnail} alt={youtubeChannel.title} className="w-16 h-16 rounded-full" />
-                                ) : (
-                                  <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
-                                    <Youtube className="w-8 h-8 text-white/50" />
-                                  </div>
-                                )}
-                                <div>
-                                  <h3 className="text-lg font-semibold text-white">{youtubeChannel.title}</h3>
-                                  <p className="text-sm text-white/60">
-                                    {parseInt(youtubeChannel.subscriberCount).toLocaleString()} subscribers
-                                  </p>
-                                </div>
-                              </>
-                            ) : (
-                              <div className="text-white/70">Connected to YouTube, but channel info could not be loaded.</div>
-                            )}
-                          </div>
-                          
-                          <Button 
-                            variant="destructive" 
-                            onClick={handleDisconnectYouTube}
-                            className="w-full sm:w-auto"
-                          >
-                            Disconnect YouTube
-                          </Button>
-
-                          <div className="pt-4 border-t border-white/10">
-                            <h3 className="text-lg font-medium text-white mb-4">Upcoming Live Streams</h3>
-                            {broadcasts.length === 0 ? (
-                              <p className="text-white/60 text-sm">No upcoming streams found. Schedule one in YouTube Studio.</p>
-                            ) : (
-                              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                                {broadcasts.map(b => (
-                                  <div key={b.id} className="bg-black/20 rounded-xl overflow-hidden border border-white/5">
-                                    {b.thumbnail ? (
-                                      <img src={b.thumbnail} alt={b.title} className="w-full aspect-video object-cover" />
-                                    ) : (
-                                      <div className="w-full aspect-video bg-white/5 flex items-center justify-center">
-                                        <Video className="w-8 h-8 text-white/20" />
-                                      </div>
-                                    )}
-                                    <div className="p-3">
-                                      <h4 className="text-white font-medium truncate" title={b.title}>{b.title}</h4>
-                                      <p className="text-xs text-white/60 mt-1">
-                                        {new Date(b.scheduledStartTime).toLocaleString()}
-                                      </p>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-center py-8 space-y-4">
-                          <div className="mx-auto w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4">
-                            <Youtube className="w-8 h-8 text-red-500" />
-                          </div>
-                          <h3 className="text-xl font-semibold text-white">Not Connected</h3>
-                          <p className="text-white/60 max-w-md mx-auto">
-                            Connect your YouTube account to schedule streams directly to your upcoming broadcasts.
-                          </p>
-                          <Link 
-                            href="/youtube-connect" 
-                            className={`mt-4 inline-flex ${buttonVariants({ variant: "default" })} bg-red-600 hover:bg-red-700 text-white`}
-                          >
-                            Connect YouTube
-                          </Link>
-                        </div>
-                      )}
                     </CardContent>
                   </Card>
                 </div>

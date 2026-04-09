@@ -65,8 +65,7 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE,
-      password_hash TEXT,
-      youtube_tokens TEXT
+      password_hash TEXT
     )
   `);
   await db.execute(`
@@ -87,7 +86,6 @@ async function initDb() {
       video_id INTEGER,
       rtmp_url TEXT,
       stream_key TEXT,
-      broadcast_id TEXT,
       scheduled_for DATETIME,
       status TEXT DEFAULT 'pending',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -464,61 +462,16 @@ async function getNetworkStats() {
   });
 
   server.post('/api/streams', authenticateToken, async (req, res) => {
-    let { video_id, rtmp_url, stream_key, broadcast_id, scheduled_for } = req.body;
+    let { video_id, rtmp_url, stream_key, scheduled_for } = req.body;
     
-    if (broadcast_id) {
-      try {
-        const userResult = await db.execute({
-          sql: 'SELECT youtube_tokens FROM users WHERE id = ?',
-          args: [req.user.id]
-        });
-        const tokensStr = userResult.rows[0]?.youtube_tokens;
-        if (tokensStr) {
-          const tokens = JSON.parse(tokensStr);
-          const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-          const host = req.headers['x-forwarded-host'] || req.headers.host;
-          const appUrl = process.env.APP_URL || `${protocol}://${host}`;
-
-          const auth = new google.auth.OAuth2(
-            process.env.GOOGLE_CLIENT_ID,
-            process.env.GOOGLE_CLIENT_SECRET,
-            `${appUrl}/api/auth/youtube/callback`
-          );
-          auth.setCredentials(tokens);
-          const youtube = google.youtube({ version: 'v3', auth });
-
-          const broadcastRes = await youtube.liveBroadcasts.list({
-            part: 'contentDetails',
-            id: broadcast_id
-          });
-
-          const boundStreamId = broadcastRes.data.items?.[0]?.contentDetails?.boundStreamId;
-          if (boundStreamId) {
-            const streamRes = await youtube.liveStreams.list({
-              part: 'cdn',
-              id: boundStreamId
-            });
-            const ingestionInfo = streamRes.data.items?.[0]?.cdn?.ingestionInfo;
-            if (ingestionInfo) {
-              rtmp_url = ingestionInfo.ingestionAddress;
-              stream_key = ingestionInfo.streamName;
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch YouTube stream info:', err);
-        return res.status(500).json({ error: 'Failed to fetch YouTube stream details' });
-      }
-    }
-
     if (!video_id || !rtmp_url || !stream_key || !scheduled_for) {
       return res.status(400).json({ error: 'Missing fields' });
     }
 
     try {
       const result = await db.execute({
-        sql: 'INSERT INTO streams (user_id, video_id, rtmp_url, stream_key, broadcast_id, scheduled_for) VALUES (?, ?, ?, ?, ?, ?)',
-        args: [req.user.id, video_id, rtmp_url, stream_key, broadcast_id, scheduled_for]
+        sql: 'INSERT INTO streams (user_id, video_id, rtmp_url, stream_key, scheduled_for) VALUES (?, ?, ?, ?, ?)',
+        args: [req.user.id, video_id, rtmp_url, stream_key, scheduled_for]
       });
       res.json({ success: true, streamId: Number(result.lastInsertRowid) });
     } catch (err) {
@@ -646,7 +599,7 @@ async function getNetworkStats() {
   });
 
   async function startStream(stream) {
-    const { id, user_id, video_path, rtmp_url, stream_key, broadcast_id } = stream;
+    const { id, user_id, video_path, rtmp_url, stream_key } = stream;
     const separator = rtmp_url.endsWith('/') ? '' : '/';
     let fullRtmpUrl = `${rtmp_url}${separator}${stream_key}`;
     
@@ -686,53 +639,6 @@ async function getNetworkStats() {
     const ffmpeg = spawn(ffmpegPath, args, { env: process.env });
     activeStreams.set(id, ffmpeg);
 
-    if (broadcast_id) {
-      console.log(`Waiting 15 seconds to transition YouTube broadcast ${broadcast_id} to live...`);
-      setTimeout(async () => {
-        try {
-          const userResult = await db.execute({
-            sql: 'SELECT youtube_tokens FROM users WHERE id = ?',
-            args: [user_id]
-          });
-          const tokensStr = userResult.rows[0]?.youtube_tokens;
-          if (tokensStr) {
-            const tokens = JSON.parse(tokensStr);
-            const auth = new google.auth.OAuth2(
-              process.env.GOOGLE_CLIENT_ID,
-              process.env.GOOGLE_CLIENT_SECRET,
-              `${process.env.APP_URL}/api/auth/youtube/callback`
-            );
-            auth.setCredentials(tokens);
-            
-            const youtube = google.youtube({ version: 'v3', auth });
-            
-            // Transition to testing first if needed, but usually we can just go live
-            // Note: Some broadcasts require testing phase first depending on monitorStream settings
-            try {
-              await youtube.liveBroadcasts.transition({
-                id: broadcast_id,
-                broadcastStatus: 'testing',
-                part: ['id', 'status']
-              });
-              console.log(`Transitioned broadcast ${broadcast_id} to testing. Waiting 5s before going live...`);
-              await new Promise(resolve => setTimeout(resolve, 5000));
-            } catch (testErr) {
-              console.log(`Could not transition to testing (might not be required or already testing): ${testErr.message}`);
-            }
-
-            await youtube.liveBroadcasts.transition({
-              id: broadcast_id,
-              broadcastStatus: 'live',
-              part: ['id', 'status']
-            });
-            console.log(`Successfully transitioned YouTube broadcast ${broadcast_id} to live`);
-          }
-        } catch (err) {
-          console.error(`Failed to transition YouTube broadcast ${broadcast_id} to live:`, err);
-        }
-      }, 15000);
-    }
-
     ffmpeg.stdout.on('data', (data) => {
       // console.log(`ffmpeg stdout: ${data}`);
     });
@@ -757,38 +663,6 @@ async function getNetworkStats() {
         sql: "UPDATE streams SET status = ? WHERE id = ?",
         args: [code === 0 ? 'completed' : 'failed', id]
       });
-
-      if (broadcast_id) {
-        console.log(`Waiting 10 seconds to end YouTube broadcast ${broadcast_id}...`);
-        setTimeout(async () => {
-          try {
-            const userResult = await db.execute({
-              sql: 'SELECT youtube_tokens FROM users WHERE id = ?',
-              args: [user_id]
-            });
-            const tokensStr = userResult.rows[0]?.youtube_tokens;
-            if (tokensStr) {
-              const tokens = JSON.parse(tokensStr);
-              const auth = new google.auth.OAuth2(
-                process.env.GOOGLE_CLIENT_ID,
-                process.env.GOOGLE_CLIENT_SECRET,
-                `${process.env.APP_URL}/api/auth/youtube/callback`
-              );
-              auth.setCredentials(tokens);
-              
-              const youtube = google.youtube({ version: 'v3', auth });
-              await youtube.liveBroadcasts.transition({
-                id: broadcast_id,
-                broadcastStatus: 'complete',
-                part: ['id', 'status']
-              });
-              console.log(`Successfully ended YouTube broadcast ${broadcast_id}`);
-            }
-          } catch (err) {
-            console.error(`Failed to end YouTube broadcast ${broadcast_id}:`, err);
-          }
-        }, 10000);
-      }
     });
   }
 });
