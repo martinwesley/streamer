@@ -370,10 +370,10 @@ app.prepare().then(async () => {
       console.log('Total items:', response.data.items?.length);
 
       const broadcasts = response.data.items?.map(item => ({
-        id: item.id.videoId,
+        id: item.id,
         title: item.snippet?.title,
         status: 'upcoming',
-        scheduledStartTime: item.snippet?.publishedAt, // This is not the scheduled start time, but it's what search returns
+        scheduledStartTime: item.snippet?.scheduledStartTime,
         thumbnail: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url
       })) || [];
 
