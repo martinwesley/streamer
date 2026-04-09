@@ -864,11 +864,11 @@ async function getNetworkStats() {
         args: [status, id]
       });
 
-      // If stream completed successfully and has broadcast_id, end YouTube broadcast after 5 seconds
+      // If stream completed successfully and has broadcast_id, end YouTube broadcast after 15 seconds
       if (code === 0 && stream.broadcast_id) {
         setTimeout(() => {
           endYouTubeBroadcast(stream.broadcast_id);
-        }, 5000);
+        }, 15000);
       }
     });
   }
