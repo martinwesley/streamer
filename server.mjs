@@ -377,6 +377,23 @@ async function getDirectDownloadUrl(driveUrl) {
   };
 }
 
+// Add this helper function near the top of the file, after the existing functions
+function extractFilename(contentDisposition, url) {
+  if (contentDisposition) {
+    const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+    if (match) {
+      return match[1].replace(/['"]/g, '');
+    }
+  }
+  // Fallback: parse filename from URL
+  const urlPath = new URL(url).pathname;
+  const filename = urlPath.split('/').pop();
+  if (filename && filename.includes('.')) {
+    return filename;
+  }
+  return 'imported_video.mp4'; // Default fallback
+}
+
 app.prepare().then(async () => {
   await initDb();
 
@@ -631,6 +648,7 @@ app.prepare().then(async () => {
         return;
       }
       
+      const originalFilename = extractFilename(response.headers.get('content-disposition'), downloadUrl);
       const contentLength = response.headers.get('content-length');
       const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
       let downloadedBytes = 0;
@@ -670,7 +688,7 @@ app.prepare().then(async () => {
           
           const result = await db.execute({
             sql: 'INSERT INTO videos (user_id, filename, original_name, path, size) VALUES (?, ?, ?, ?, ?)',
-            args: [req.user.id, filename, filename, destPath, stats.size]
+            args: [req.user.id, filename, originalFilename, destPath, stats.size]
           });
           importProgressMap.set(importId, { progress: 100, status: 'completed', videoId: Number(result.lastInsertRowid) });
         } catch (err) {
