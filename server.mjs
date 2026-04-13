@@ -194,7 +194,7 @@ async function initDb() {
     )
   `);
 
-  const hash = await bcrypt.hash('prophet123', 10);
+  const hash = await bcrypt.hash(process.env.PASSW, 10);
   try {
     const userResult = await db.execute({
       sql: 'SELECT * FROM users WHERE username = ?',
@@ -634,7 +634,10 @@ app.prepare().then(async () => {
       const contentLength = response.headers.get('content-length');
       const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
       let downloadedBytes = 0;
-
+      const filename1 = contentDisposition.parse(response.headers['content-disposition']).parameters.filename;
+      if(!filename1) { 
+        filename1 = Date.now() + '-imported.mp4';
+      }
       const fileStream = fs.createWriteStream(destPath);
       
       const { Readable } = await import('stream');
@@ -667,10 +670,11 @@ app.prepare().then(async () => {
           await pipeline(nodeStream, progressStream, fileStream);
           
           const stats = fs.statSync(destPath);
+          // Comment: args: [req.user.id, filename, 'imported_video', destPath, stats.size]
           
           const result = await db.execute({
             sql: 'INSERT INTO videos (user_id, filename, original_name, path, size) VALUES (?, ?, ?, ?, ?)',
-            args: [req.user.id, filename, 'imported_video', destPath, stats.size]
+            args: [req.user.id, filename, filename1, destPath, stats.size]
           });
           importProgressMap.set(importId, { progress: 100, status: 'completed', videoId: Number(result.lastInsertRowid) });
         } catch (err) {
@@ -744,7 +748,7 @@ async function getNetworkStats() {
   }
 }
 
-  server.get('/api/system-stats', authenticateToken, async (req, res) => {
+  server.get('/system-stats', authenticateToken, async (req, res) => {
     try {
       const [cpu, mem, fsSize, network] = await Promise.all([
         si.currentLoad(),
