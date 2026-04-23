@@ -431,7 +431,7 @@ app.prepare().then(async () => {
     if (user && await bcrypt.compare(password, user.password_hash)) {
       const token = await new jose.SignJWT({ id: user.id, username: user.username })
         .setProtectedHeader({ alg: 'HS256' })
-        .setExpirationTime('24h')
+        .setExpirationTime('8d')
         .sign(JWT_SECRET);
       
       res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'none' });
