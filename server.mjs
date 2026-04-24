@@ -591,7 +591,10 @@ app.prepare().then(async () => {
     }
   });
 
-  server.post('/api/videos/upload', authenticateToken, upload.single('video'), async (req, res) => {
+  server.post('/api/videos/upload', authenticateToken, (req, res, next) => {
+    req.setTimeout(30 * 60 * 1000); // 30 minutes
+    next();
+  }, upload.single('video'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     
     try {
