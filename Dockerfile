@@ -26,8 +26,8 @@ RUN mkdir -p /app/init-data /app/init-uploads && \
 VOLUME ["/app/data", "/app/uploads"]
 
 # Expose the requested port
-ENV PORT=7576
-EXPOSE 7576
+ENV PORT=7577
+EXPOSE 7577
 
 # Start the custom server
 CMD ["npm", "start"]
