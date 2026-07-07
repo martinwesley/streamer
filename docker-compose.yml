@@ -1,9 +1,9 @@
 services:
-  streamscheduler:
+  streamscheduler1:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: streamscheduler
+    container_name: streamscheduler1
     ports:
       - "7577:7577"
     volumes:
