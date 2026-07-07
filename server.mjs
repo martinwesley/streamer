@@ -535,9 +535,7 @@ app.prepare().then(async () => {
         id: item.id,
         title: item.snippet.title,
         description: item.snippet.description,
-        thumbnail: item.snippet.thumbnails?.high?.url 
-           || item.snippet.thumbnails?.medium?.url 
-           || item.snippet.thumbnails?.default?.url,
+        thumbnail: item.snippet.thumbnails?.default?.url,
         scheduledStartTime: item.snippet.scheduledStartTime,
         status: item.status.lifeCycleStatus,
       }));
