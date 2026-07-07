@@ -5,14 +5,14 @@ services:
       dockerfile: Dockerfile
     container_name: streamscheduler
     ports:
-      - "7576:7576"
+      - "7577:7577"
     volumes:
       - data:/app/data
       - uploads:/app/uploads
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-      - PORT=7576
+      - PORT=7577
       - JWT_SECRET=${JWT_SECRET}
 volumes:                            # ← This declares the volumes
   data:
