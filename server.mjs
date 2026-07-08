@@ -141,7 +141,37 @@ async function endYouTubeBroadcast(broadcastId) {
   }
 }
 
-async function createYouTubeStream(title, description, scheduledStartTime, privacyStatus = 'private') {
+async function uploadYouTubeThumbnail(broadcastId, thumbnailBase64) {
+  const accessToken = await getYouTubeAccessToken();
+  if (!accessToken) throw new Error('No YouTube access token for thumbnail upload');
+
+  let mimeType = 'image/jpeg';
+  let base64Data = thumbnailBase64;
+  if (thumbnailBase64.startsWith('data:')) {
+    const m = thumbnailBase64.match(/^data:(image\/[^;]+);base64,(.*)$/);
+    if (m) {
+      mimeType = m[1];
+      base64Data = m[2];
+    } else {
+      base64Data = thumbnailBase64.split(',')[1] || thumbnailBase64;
+    }
+  }
+  const buffer = Buffer.from(base64Data, 'base64');
+  const uploadUrl = `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?uploadType=multipart&videoId=${broadcastId}`;
+  const form = new FormData();
+  form.append('image', new Blob([buffer], { type: mimeType }), 'thumbnail.jpg');
+  const thumbRes = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${accessToken}` },
+    body: form,
+  });
+  if (!thumbRes.ok) {
+    const err = await thumbRes.text();
+    throw new Error(`Thumbnail upload failed: ${err}`);
+  }
+}
+
+async function createYouTubeStream(title, description, scheduledStartTime, privacyStatus = 'private', thumbnailBase64 = null) {
   try {
     const accessToken = await getYouTubeAccessToken();
     if (!accessToken) {
@@ -149,10 +179,10 @@ async function createYouTubeStream(title, description, scheduledStartTime, priva
     }
 
     const now = new Date();
-    const scheduledTime = scheduledStartTime || new Date(now.getTime() + 30 * 60 * 1000).toISOString(); // default 30 min from now
+    const scheduledTime = scheduledStartTime || new Date(now.getTime() + 30 * 60 * 1000).toISOString();
 
-    // 1. Create liveBroadcast
-    const broadcastResponse = await fetch('https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status', {
+    // 1. Create liveBroadcast (with contentDetails for auto-start/stop, dvr, latency)
+    const broadcastResponse = await fetch('https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status,contentDetails', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -167,6 +197,12 @@ async function createYouTubeStream(title, description, scheduledStartTime, priva
         status: {
           privacyStatus: privacyStatus,
           selfDeclaredMadeForKids: false,
+        },
+        contentDetails: {
+          enableAutoStart: true,
+          enableAutoStop: false,
+          enableDvr: true,
+          latencyPreference: 'normal',
         },
       }),
     });
@@ -194,16 +230,12 @@ async function createYouTubeStream(title, description, scheduledStartTime, priva
           ingestionType: 'rtmp',
           frameRate: '30fps',
           resolution: '1080p',
-          ingestionInfo: {
-            // Will be populated after bind
-          },
         },
       }),
     });
 
     if (!streamResponse.ok) {
       const err = await streamResponse.text();
-      // Cleanup broadcast on failure
       await fetch(`https://www.googleapis.com/youtube/v3/liveBroadcasts?id=${broadcastId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${accessToken}` },
@@ -226,7 +258,6 @@ async function createYouTubeStream(title, description, scheduledStartTime, priva
 
     if (!bindResponse.ok) {
       const err = await bindResponse.text();
-      // Cleanup on bind failure
       await fetch(`https://www.googleapis.com/youtube/v3/liveBroadcasts?id=${broadcastId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${accessToken}` },
@@ -236,12 +267,23 @@ async function createYouTubeStream(title, description, scheduledStartTime, priva
 
     const rtmpUrl = 'rtmp://a.rtmp.youtube.com/live2';
 
+    // 4. Thumbnail (optional, non-fatal)
+    let thumbnailWarning = null;
+    if (thumbnailBase64) {
+      try {
+        await uploadYouTubeThumbnail(broadcastId, thumbnailBase64);
+      } catch (e) {
+        thumbnailWarning = e.message;
+      }
+    }
+
     return {
       broadcastId,
       rtmpUrl,
       streamKey,
       scheduledFor: scheduledTime,
       title: title || 'New Live Stream',
+      thumbnailWarning,
     };
   } catch (error) {
     console.error('YouTube stream creation error:', error);
@@ -670,13 +712,13 @@ app.prepare().then(async () => {
   // Create new YouTube live broadcast + stream + bind (combined to minimize quota usage)
   server.post('/api/youtube/create-stream', authenticateToken, async (req, res) => {
     try {
-      const { title, description, scheduledStartTime, privacyStatus } = req.body;
+      const { title, description, scheduledStartTime, privacyStatus, thumbnail } = req.body;
 
       if (!title) {
         return res.status(400).json({ error: 'Title is required' });
       }
 
-      const result = await createYouTubeStream(title, description, scheduledStartTime, privacyStatus);
+      const result = await createYouTubeStream(title, description, scheduledStartTime, privacyStatus, thumbnail || null);
 
       res.json({
         success: true,
@@ -685,6 +727,7 @@ app.prepare().then(async () => {
         streamKey: result.streamKey,
         scheduledFor: result.scheduledFor,
         title: result.title,
+        thumbnailWarning: result.thumbnailWarning || undefined,
       });
     } catch (error) {
       console.error('Create stream error:', error);

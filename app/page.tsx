@@ -6,14 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 import { Progress } from "@/components/ui/progress";
-import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Key, Calendar, LayoutDashboard, LogOut, RefreshCw } from "lucide-react";
+import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Key, Calendar, LayoutDashboard, LogOut, RefreshCw, Plus } from "lucide-react";
 import axios from "axios";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -57,6 +57,8 @@ export default function Dashboard() {
   const [createDescription, setCreateDescription] = useState("");
   const [createScheduledTime, setCreateScheduledTime] = useState("");
   const [creatingStream, setCreatingStream] = useState(false);
+  const [createThumbnail, setCreateThumbnail] = useState<string | null>(null);
+  const [createThumbnailPreview, setCreateThumbnailPreview] = useState<string>("");
 
 
 
@@ -203,6 +205,7 @@ export default function Dashboard() {
           description: createDescription,
           scheduledStartTime: createScheduledTime || undefined,
           privacyStatus: "private",
+          thumbnail: createThumbnail || undefined,
         }),
       });
 
@@ -215,7 +218,7 @@ export default function Dashboard() {
         setBroadcastId(data.broadcastId);
         setRtmpUrl(data.rtmpUrl);
         setStreamKey(data.streamKey);
-        setScheduledFor(data.scheduledFor.replace('Z', '').slice(0, 16)); // format for datetime-local
+        setScheduledFor(data.scheduledFor.replace('Z', '').slice(0, 16));
 
         setShowCreateModal(false);
 
@@ -223,8 +226,21 @@ export default function Dashboard() {
         setCreateTitle("");
         setCreateDescription("");
         setCreateScheduledTime("");
+        setCreateThumbnail(null);
+        setCreateThumbnailPreview("");
 
-        // Refresh broadcasts list
+        if (data.thumbnailWarning) {
+          toast.warning(data.thumbnailWarning);
+        }
+
+        // Optimistic insert + refresh
+        const newBroadcast = {
+          id: data.broadcastId,
+          title: data.title,
+          thumbnail: createThumbnailPreview || undefined,
+          scheduledStartTime: data.scheduledFor,
+        };
+        setBroadcasts(prev => [newBroadcast, ...prev.filter(b => b.id !== data.broadcastId)]);
         fetchBroadcasts();
       } else {
         toast.error(data.error || "Failed to create stream");
@@ -241,6 +257,8 @@ export default function Dashboard() {
     setCreateScheduledTime(defaultTime);
     setCreateTitle("My Live Stream");
     setCreateDescription("");
+    setCreateThumbnail(null);
+    setCreateThumbnailPreview("");
     setShowCreateModal(true);
   };
 
@@ -740,85 +758,100 @@ export default function Dashboard() {
                       <h2 className="text-3xl font-bold tracking-tight text-white">Schedule</h2>
                     </div>
 
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                     <Card className="glass border-white/5">
-                       <CardHeader>
-                         <CardTitle className="text-white">Upload Video</CardTitle>
-                       </CardHeader>
-                       <CardContent>
-                          <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <Card className="glass border-white/5">
+                        <CardHeader>
+                          <CardTitle className="text-white">Upload Video</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                           <div className="space-y-4">
+                             <div className="space-y-2">
+                               <Label className="text-white/80">Select File</Label>
+                               <div 
+                                 className="flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-xl p-8 hover:bg-white/5 hover:border-primary/50 transition-all cursor-pointer bg-black/20" 
+                                 onClick={() => document.getElementById('file-upload')?.click()}
+                               >
+                                 <Folder className="w-12 h-12 text-white/40 mb-3" />
+                                 <span className="text-sm text-white/70 text-center font-medium">
+                                   {file ? file.name : "Click to select a video file"}
+                                 </span>
+                                 <Input 
+                                   id="file-upload"
+                                   type="file" 
+                                   accept="video/*" 
+                                   onChange={e => {
+                                     const selected = e.target.files?.[0] || null;
+                                     setFile(selected);
+                                     if (selected) handleUpload(selected);
+                                   }} 
+                                   className="hidden"
+                                   disabled={uploading}
+                                 />
+                               </div>
+                             </div>
+                             {uploading && (
+                               <div className="space-y-2 pt-2">
+                                 <div className="flex justify-between text-xs text-white/70 font-medium">
+                                   <span>Uploading...</span>
+                                   <span>{uploadProgress}%</span>
+                                 </div>
+                                 <Progress value={uploadProgress} className="h-1.5 bg-white/10" />
+                               </div>
+                             )}
+                           </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card className="glass border-white/5">
+                        <CardHeader>
+                          <CardTitle className="text-white">Import from URL</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <form onSubmit={handleImport} className="space-y-4">
                             <div className="space-y-2">
-                              <Label className="text-white/80">Select File</Label>
-                              <div 
-                                className="flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-xl p-8 hover:bg-white/5 hover:border-primary/50 transition-all cursor-pointer bg-black/20" 
-                                onClick={() => document.getElementById('file-upload')?.click()}
-                              >
-                                <Folder className="w-12 h-12 text-white/40 mb-3" />
-                                <span className="text-sm text-white/70 text-center font-medium">
-                                  {file ? file.name : "Click to select a video file"}
-                                </span>
-                                <Input 
-                                  id="file-upload"
-                                  type="file" 
-                                  accept="video/*" 
-                                  onChange={e => {
-                                    const selected = e.target.files?.[0] || null;
-                                    setFile(selected);
-                                    if (selected) handleUpload(selected);
-                                  }} 
-                                  className="hidden"
-                                  disabled={uploading}
-                                />
-                              </div>
+                              <Label className="text-white/80">Direct Download URL</Label>
+                              <Input 
+                                type="url" 
+                                value={importUrl} 
+                                onChange={e => setImportUrl(e.target.value)} 
+                                placeholder="https://..." 
+                                required 
+                              />
+                              <p className="text-xs text-white/50">
+                                For Google Drive, use a direct download link format.
+                              </p>
                             </div>
-                            {uploading && (
+                            <Button type="submit" disabled={importing || !importUrl} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
+                              {importing ? "Importing..." : "Import Video"}
+                            </Button>
+                            {importing && (
                               <div className="space-y-2 pt-2">
                                 <div className="flex justify-between text-xs text-white/70 font-medium">
-                                  <span>Uploading...</span>
-                                  <span>{uploadProgress}%</span>
+                                  <span>Importing...</span>
+                                  <span>{importProgress}%</span>
                                 </div>
-                                <Progress value={uploadProgress} className="h-1.5 bg-white/10" />
+                                <Progress value={importProgress} className="h-1.5 bg-white/10" />
                               </div>
                             )}
-                          </div>
-                       </CardContent>
-                     </Card>
+                          </form>
+                        </CardContent>
+                      </Card>
 
-                     <Card className="glass border-white/5">
-                       <CardHeader>
-                         <CardTitle className="text-white">Import from URL</CardTitle>
-                       </CardHeader>
-                       <CardContent>
-                         <form onSubmit={handleImport} className="space-y-4">
-                           <div className="space-y-2">
-                             <Label className="text-white/80">Direct Download URL</Label>
-                             <Input 
-                               type="url" 
-                               value={importUrl} 
-                               onChange={e => setImportUrl(e.target.value)} 
-                               placeholder="https://..." 
-                               required 
-                             />
-                             <p className="text-xs text-white/50">
-                               For Google Drive, use a direct download link format.
-                             </p>
-                           </div>
-                           <Button type="submit" disabled={importing || !importUrl} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
-                             {importing ? "Importing..." : "Import Video"}
-                           </Button>
-                           {importing && (
-                             <div className="space-y-2 pt-2">
-                               <div className="flex justify-between text-xs text-white/70 font-medium">
-                                 <span>Importing...</span>
-                                 <span>{importProgress}%</span>
-                               </div>
-                               <Progress value={importProgress} className="h-1.5 bg-white/10" />
-                             </div>
-                           )}
-                         </form>
-                       </CardContent>
-                     </Card>
-                   </div>
+                      <Card className="glass border-white/5">
+                        <CardHeader>
+                          <CardTitle className="text-white">Create YouTube Stream</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-3">
+                            <p className="text-sm text-white/70">Create a new live broadcast + stream key directly on YouTube without leaving the app.</p>
+                            <Button onClick={openCreateModal} className="w-full" variant="outline">
+                              <Plus className="h-4 w-4 mr-2" /> Create New Stream
+                            </Button>
+                            <p className="text-xs text-white/40">After creation, the schedule form will be auto-filled.</p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
                    
                    <Card className="glass border-white/5">
                      <CardHeader>
@@ -905,7 +938,13 @@ export default function Dashboard() {
                               </Button>
                             ) : (
                               <div className="flex items-center gap-2">
-                                <Select value={broadcastId || undefined} onValueChange={(val) => setBroadcastId(val || "")}>
+                                 <Select value={broadcastId || undefined} onValueChange={(val) => {
+                                   if (val === "__CREATE_NEW__") {
+                                     openCreateModal();
+                                     return;
+                                   }
+                                   setBroadcastId(val || "");
+                                 }}>
                                   <SelectTrigger className="bg-black/50 border-white/10 text-white h-auto min-h-[72px] py-3">
                                     <SelectValue placeholder="Choose YouTube Broadcast">
                                       {broadcastId ? (
@@ -925,11 +964,14 @@ export default function Dashboard() {
                                       ) : "Choose YouTube Broadcast"}
                                     </SelectValue>
                                   </SelectTrigger>
-                                  <SelectContent className="bg-background border-white/10 max-h-[400px]">
-                                    {broadcasts.length === 0 && (
-                                      <div className="px-3 py-4 text-sm text-muted-foreground">No broadcasts found.</div>
-                                    )}
-                                    {broadcasts.map((b: any) => (
+                                   <SelectContent className="bg-background border-white/10 max-h-[400px]">
+                                     <SelectItem value="__CREATE_NEW__" className="py-3 px-3 cursor-pointer text-primary font-medium">
+                                       + Create new YouTube stream
+                                     </SelectItem>
+                                     {broadcasts.length === 0 && (
+                                       <div className="px-3 py-4 text-sm text-muted-foreground">No broadcasts found.</div>
+                                     )}
+                                     {broadcasts.map((b: any) => (
                                       <SelectItem key={b.id} value={b.id} className="py-4 px-3 cursor-pointer">
                                         <div className="flex items-center gap-4 w-full">
                                           {b.thumbnail ? (
@@ -959,6 +1001,9 @@ export default function Dashboard() {
                                     <X className="h-4 w-4" />
                                   </Button>
                                 )}
+                                <Button onClick={openCreateModal} variant="outline" size="sm" className="p-2" title="Create new YouTube stream">
+                                  <Plus className="h-4 w-4" />
+                                </Button>
                                 <Button onClick={handleYouTubeDisconnect} variant="outline" size="sm" className="p-2" title="Disconnect YouTube Account">
                                   <LogOut className="h-4 w-4" />
                                 </Button>
@@ -1172,6 +1217,99 @@ export default function Dashboard() {
           </AnimatePresence>
         </div>
       </main>
+
+      {/* Create YouTube Stream Modal */}
+      <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
+        <DialogContent className="bg-background/95 backdrop-blur-sm border-white/10 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white">Create New YouTube Stream</DialogTitle>
+            <DialogDescription className="text-white/60">
+              Create a new live broadcast and stream directly on YouTube
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="text-white/80">Title *</Label>
+              <Input
+                value={createTitle}
+                onChange={e => setCreateTitle(e.target.value)}
+                placeholder="My Live Stream"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-white/80">Description</Label>
+              <Input
+                value={createDescription}
+                onChange={e => setCreateDescription(e.target.value)}
+                placeholder="Optional description"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-white/80">Scheduled Start Time *</Label>
+              <Input
+                type="datetime-local"
+                value={createScheduledTime}
+                onChange={e => setCreateScheduledTime(e.target.value)}
+                required
+                style={{ colorScheme: 'dark' }}
+              />
+              <p className="text-xs text-white/40">Leave empty to start in ~30 minutes</p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-white/80">Thumbnail (optional)</Label>
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={e => {
+                  const f = e.target.files?.[0];
+                  if (f) {
+                    const reader = new FileReader();
+                     reader.onload = () => {
+                       const b64 = reader.result as string;
+                       setCreateThumbnail(b64);
+                       setCreateThumbnailPreview(b64);
+                     };
+                    reader.readAsDataURL(f);
+                  }
+                }}
+              />
+              {createThumbnailPreview && (
+                <div className="flex items-center gap-2">
+                  <img src={createThumbnailPreview} alt="thumb preview" className="w-24 h-14 object-cover rounded border border-white/20" />
+                  <Button type="button" variant="ghost" size="sm" onClick={() => { setCreateThumbnail(null); setCreateThumbnailPreview(""); }}>Clear</Button>
+                </div>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label className="text-white/80">Privacy</Label>
+              <Select value="private" onValueChange={() => {}} disabled>
+                <SelectTrigger className="bg-black/50 border-white/10 text-white">
+                  <SelectValue placeholder="Private" />
+                </SelectTrigger>
+                <SelectContent className="bg-background border-white/10">
+                  <SelectItem value="private">Private</SelectItem>
+                  <SelectItem value="unlisted">Unlisted</SelectItem>
+                  <SelectItem value="public">Public</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-white/40">Defaults to Private. Can be changed in YouTube Studio later.</p>
+            </div>
+          </div>
+          <DialogFooter className="border-t border-white/10">
+            <Button variant="ghost" size="sm" onClick={() => setShowCreateModal(false)} className="text-white/70 hover:text-white">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateStream}
+              disabled={creatingStream}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              {creatingStream ? "Creating..." : "Create Stream"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
