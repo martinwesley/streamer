@@ -1336,7 +1336,7 @@ export default function Dashboard() {
                        <SelectItem key={b.id} value={b.id} className="py-2">
                          <div>
                            {b._statusTag} • {b.title} {b.scheduledStartTime ? `(${new Date(b.scheduledStartTime).toLocaleString()})` : ''}
-                           <div className="text-[10px] text-white/40 mt-0.5">{b.id}</div>
+                            <div className="text-[10px] text-white/40 mt-0.5">{b.streamKeyName || b.id}</div>
                          </div>
                        </SelectItem>
                     ))}
