@@ -1382,7 +1382,7 @@ export default function Dashboard() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-white/80">Thumbnail (optional)</Label>
+              <Label className="text-white/80">Thumbnail</Label>
               <Input
                 type="file"
                 accept="image/*"
@@ -1411,7 +1411,7 @@ export default function Dashboard() {
               <Label className="text-white/80">Privacy</Label>
               <Select value={createPrivacy} onValueChange={(v) => setCreatePrivacy(v as any)}>
                 <SelectTrigger className="bg-black/50 border-white/10 text-white">
-                    <SelectValue>{createLatency === 'ultraLow' ? 'Ultra low' : createLatency.charAt(0).toUpperCase() + createLatency.slice(1)}</SelectValue>
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-background border-white/10">
                   <SelectItem value="private">Private</SelectItem>
@@ -1438,7 +1438,7 @@ export default function Dashboard() {
                 <Label className="text-white/80 text-xs">Latency</Label>
                 <Select value={createLatency} onValueChange={(v)=>setCreateLatency(v as any)}>
                   <SelectTrigger className="bg-black/50 border-white/10 text-white h-8">
-                  <SelectValue>{createPrivacy.charAt(0).toUpperCase() + createPrivacy.slice(1)}</SelectValue>
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="bg-background border-white/10">
                     <SelectItem value="normal">Normal</SelectItem>
