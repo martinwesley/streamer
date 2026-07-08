@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 const fmtDate = (d: string | Date) => new Intl.DateTimeFormat('en-GB', {
   day: '2-digit', month: 'short', year: 'numeric',
   hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
-}).format(new Date(d)).replace(',', '');
+}).format(new Date(d)).replace(',', '').replace(/am|pm/i, m => m.toUpperCase());
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1022,7 +1022,7 @@ export default function Dashboard() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label className="text-white/80">Schedule Time</Label>
+                          <Label className="text-white/80">Scheduled Start Time *</Label>
                           <Input 
                             type="datetime-local" 
                             value={scheduledFor} 
