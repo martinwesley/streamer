@@ -2,20 +2,20 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Video, Key, Calendar, LayoutDashboard, LogOut, RefreshCw } from "lucide-react";
+import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Key, Calendar, LayoutDashboard, LogOut, RefreshCw } from "lucide-react";
 import axios from "axios";
 import { motion, AnimatePresence } from "motion/react";
-import Link from "next/link";
+
 import Image from "next/image";
 
 export default function Dashboard() {
@@ -49,6 +49,10 @@ export default function Dashboard() {
   const [selectedSavedKey, setSelectedSavedKey] = useState("");
   const [broadcasts, setBroadcasts] = useState<any[]>([]);
   const [youtubeAuthenticated, setYoutubeAuthenticated] = useState(false);
+
+  // Broadcast dialog state
+  const [isBroadcastDialogOpen, setIsBroadcastDialogOpen] = useState(false);
+  const [broadcastSearch, setBroadcastSearch] = useState("");
 
   // Saved Keys state
   const [savedKeys, setSavedKeys] = useState<any[]>([]);
@@ -402,9 +406,8 @@ export default function Dashboard() {
         <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4 px-2">Menu</div>
         <nav className="space-y-1">
           {[
-            { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-            { id: "streams", label: "Streams", icon: Calendar },
-            { id: "videos", label: "Videos", icon: Video },
+            { id: "dashboard", label: "Overview", icon: LayoutDashboard },
+            { id: "schedule", label: "Schedule", icon: Calendar },
             { id: "keys", label: "Stream Keys", icon: Key },
           ].map((item) => (
             <button
@@ -604,24 +607,163 @@ export default function Dashboard() {
                             </div>
                           ))}
                         </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </div>
-              )}
+                       </CardContent>
+                     </Card>
+                   </div>
 
-              {activeTab === "streams" && (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-3xl font-bold tracking-tight text-white">Streams</h2>
-                  </div>
-                  
-                  <Card className="glass border-white/5">
-                    <CardHeader>
-                      <CardTitle className="text-white">Schedule New Stream</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <form onSubmit={handleSchedule} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     <Card className="glass border-white/5">
+                       <CardHeader>
+                         <CardTitle className="text-lg text-white">Recent Videos</CardTitle>
+                       </CardHeader>
+                       <CardContent>
+                         <div className="space-y-2">
+                           {videos.length === 0 ? (
+                             <div className="text-center py-4 text-muted-foreground text-sm">No videos yet</div>
+                           ) : (
+                             videos.slice(0, 3).map((v: any) => (
+                               <div key={v.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5">
+                                 <div className="min-w-0">
+                                   <div className="font-medium text-white truncate">{v.original_name}</div>
+                                   <div className="text-xs text-muted-foreground">{(v.size / (1024 * 1024)).toFixed(1)} MB</div>
+                                 </div>
+                                 {v.encoding_status === 'encoding' && (
+                                   <span className="text-xs px-2 py-0.5 rounded bg-yellow-500/10 text-yellow-400">ENC {v.encoding_progress}%</span>
+                                 )}
+                               </div>
+                             ))
+                           )}
+                         </div>
+                         <Button variant="ghost" size="sm" className="mt-3" onClick={() => setActiveTab("schedule")}>
+                           Manage →
+                         </Button>
+                       </CardContent>
+                     </Card>
+
+                     <Card className="glass border-white/5">
+                       <CardHeader>
+                         <CardTitle className="text-lg text-white">Upcoming Streams</CardTitle>
+                       </CardHeader>
+                       <CardContent>
+                         <div className="space-y-2">
+                           {streams.filter((s: any) => s.status === 'pending' || s.status === 'scheduled').length === 0 ? (
+                             <div className="text-center py-4 text-muted-foreground text-sm">No upcoming streams</div>
+                           ) : (
+                             streams
+                               .filter((s: any) => s.status === 'pending' || s.status === 'scheduled')
+                               .slice(0, 3)
+                               .map((s: any) => (
+                                 <div key={s.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5">
+                                   <div className="min-w-0">
+                                     <div className="font-medium text-white truncate">{s.video_name}</div>
+                                     <div className="text-xs text-muted-foreground">{s.scheduled_for.replace('T', ' ')}</div>
+                                   </div>
+                                   <span className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary">PENDING</span>
+                                 </div>
+                               ))
+                           )}
+                         </div>
+                         <Button variant="ghost" size="sm" className="mt-3" onClick={() => setActiveTab("schedule")}>
+                           Manage →
+                         </Button>
+                       </CardContent>
+                     </Card>
+                   </div>
+                 </div>
+               )}
+
+                {activeTab === "schedule" && (
+                 <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-3xl font-bold tracking-tight text-white">Schedule</h2>
+                    </div>
+
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     <Card className="glass border-white/5">
+                       <CardHeader>
+                         <CardTitle className="text-white">Upload Video</CardTitle>
+                       </CardHeader>
+                       <CardContent>
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <Label className="text-white/80">Select File</Label>
+                              <div 
+                                className="flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-xl p-8 hover:bg-white/5 hover:border-primary/50 transition-all cursor-pointer bg-black/20" 
+                                onClick={() => document.getElementById('file-upload')?.click()}
+                              >
+                                <Folder className="w-12 h-12 text-white/40 mb-3" />
+                                <span className="text-sm text-white/70 text-center font-medium">
+                                  {file ? file.name : "Click to select a video file"}
+                                </span>
+                                <Input 
+                                  id="file-upload"
+                                  type="file" 
+                                  accept="video/*" 
+                                  onChange={e => {
+                                    const selected = e.target.files?.[0] || null;
+                                    setFile(selected);
+                                    if (selected) handleUpload(selected);
+                                  }} 
+                                  className="hidden"
+                                  disabled={uploading}
+                                />
+                              </div>
+                            </div>
+                            {uploading && (
+                              <div className="space-y-2 pt-2">
+                                <div className="flex justify-between text-xs text-white/70 font-medium">
+                                  <span>Uploading...</span>
+                                  <span>{uploadProgress}%</span>
+                                </div>
+                                <Progress value={uploadProgress} className="h-1.5 bg-white/10" />
+                              </div>
+                            )}
+                          </div>
+                       </CardContent>
+                     </Card>
+
+                     <Card className="glass border-white/5">
+                       <CardHeader>
+                         <CardTitle className="text-white">Import from URL</CardTitle>
+                       </CardHeader>
+                       <CardContent>
+                         <form onSubmit={handleImport} className="space-y-4">
+                           <div className="space-y-2">
+                             <Label className="text-white/80">Direct Download URL</Label>
+                             <Input 
+                               type="url" 
+                               value={importUrl} 
+                               onChange={e => setImportUrl(e.target.value)} 
+                               placeholder="https://..." 
+                               required 
+                             />
+                             <p className="text-xs text-white/50">
+                               For Google Drive, use a direct download link format.
+                             </p>
+                           </div>
+                           <Button type="submit" disabled={importing || !importUrl} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
+                             {importing ? "Importing..." : "Import Video"}
+                           </Button>
+                           {importing && (
+                             <div className="space-y-2 pt-2">
+                               <div className="flex justify-between text-xs text-white/70 font-medium">
+                                 <span>Importing...</span>
+                                 <span>{importProgress}%</span>
+                               </div>
+                               <Progress value={importProgress} className="h-1.5 bg-white/10" />
+                             </div>
+                           )}
+                         </form>
+                       </CardContent>
+                     </Card>
+                   </div>
+                   
+                   <Card className="glass border-white/5">
+                     <CardHeader>
+                       <CardTitle className="text-white">Schedule New Stream</CardTitle>
+                     </CardHeader>
+                     <CardContent>
+                       <form onSubmit={handleSchedule} className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2 md:col-span-2">
                           <Label className="text-white/80">Use Saved Stream Key (Optional)</Label>
                           <Select value={selectedSavedKey || undefined} onValueChange={(val) => {
@@ -646,9 +788,10 @@ export default function Dashboard() {
                             </SelectContent>
                           </Select>
                         </div>
-                        <div className="space-y-2">
-                          <Label className="text-white/80">Select Video</Label>
-                          <Select value={selectedVideo || undefined} onValueChange={(val) => setSelectedVideo(val || "")}>
+                         <div className="space-y-2">
+                           <Label className="text-white/80">Select Video</Label>
+                           <p className="text-xs text-white/50 -mt-1">or upload more using the cards above</p>
+                           <Select value={selectedVideo || undefined} onValueChange={(val) => setSelectedVideo(val || "")}>
                             <SelectTrigger className="bg-black/50 border-white/10 text-white">
                               <SelectValue placeholder="Select a video">
                                 {selectedVideo ? (videos.find(v => v.id.toString() === selectedVideo)?.original_name || "Unknown Video") : "Select a video"}
@@ -692,42 +835,41 @@ export default function Dashboard() {
                             style={{ colorScheme: 'dark' }}
                           />
                         </div>
-                        <div className="space-y-2 md:col-span-2">
-                          <Label className="text-white/80">YouTube Broadcast (Optional)</Label>
-                          {!youtubeAuthenticated ? (
-                            <Button onClick={handleYouTubeAuth} variant="outline" className="w-full">
-                              Connect YouTube Account
-                            </Button>
-                          ) : (
-                            <div className="flex items-center space-x-2">
-                              <Select value={broadcastId || undefined} onValueChange={(val) => setBroadcastId(val || "")}>
-                                <SelectTrigger className="bg-black/50 border-white/10 text-white flex-1">
-                                  <SelectValue placeholder="Select a broadcast">
-                                    {broadcastId ? (broadcasts.find(b => b.id === broadcastId)?.title || "Unknown Broadcast") : "Select a broadcast"}
-                                  </SelectValue>
-                                </SelectTrigger>
-                                <SelectContent className="bg-background border-white/10">
-                                  {broadcasts.map(b => (
-                                    <SelectItem key={b.id} value={b.id}>
-                                      <div className="flex items-center space-x-2">
-                                        {b.thumbnail && <Image src={b.thumbnail} alt="" width={32} height={32} className="rounded" />}
-                                        <div>
-                                          <div className="font-medium">{b.title}</div>
-                                          <div className="text-sm text-muted-foreground">
-                                            {new Date(b.scheduledStartTime).toLocaleString()}
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <Button onClick={handleYouTubeDisconnect} variant="outline" size="sm" className="p-2" title="Disconnect YouTube Account">
-                                <LogOut className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          )}
-                        </div>
+                         <div className="space-y-2 md:col-span-2">
+                           <Label className="text-white/80">YouTube Broadcast (Optional)</Label>
+                           {!youtubeAuthenticated ? (
+                             <Button onClick={handleYouTubeAuth} variant="outline" className="w-full">
+                               Connect YouTube Account
+                             </Button>
+                           ) : (
+                             <div className="flex items-center gap-2">
+                               <Button
+                                 type="button"
+                                 variant="outline"
+                                 onClick={() => setIsBroadcastDialogOpen(true)}
+                                 className="flex-1 justify-start text-left"
+                               >
+                                 {broadcastId
+                                   ? (broadcasts.find(b => b.id === broadcastId)?.title || "Selected broadcast")
+                                   : "Choose YouTube Broadcast"}
+                               </Button>
+                               {broadcastId && (
+                                 <Button
+                                   type="button"
+                                   variant="ghost"
+                                   size="sm"
+                                   onClick={() => setBroadcastId("")}
+                                   title="Clear selection"
+                                 >
+                                   <X className="h-4 w-4" />
+                                 </Button>
+                               )}
+                               <Button onClick={handleYouTubeDisconnect} variant="outline" size="sm" className="p-2" title="Disconnect YouTube Account">
+                                 <LogOut className="h-4 w-4" />
+                               </Button>
+                             </div>
+                           )}
+                         </div>
                         <div className="md:col-span-2 pt-2">
                           <Button type="submit" disabled={scheduling} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
                             {scheduling ? "Scheduling..." : "Schedule Stream"}
@@ -735,11 +877,86 @@ export default function Dashboard() {
                         </div>
                       </form>
                     </CardContent>
-                  </Card>
+                   </Card>
 
-                  <Card className="glass border-white/5">
-                    <CardHeader>
-                      <CardTitle className="text-white">Scheduled Streams</CardTitle>
+                   <Dialog open={isBroadcastDialogOpen} onOpenChange={setIsBroadcastDialogOpen}>
+                     <DialogContent className="max-w-5xl">
+                       <DialogHeader>
+                         <DialogTitle>Choose YouTube Broadcast</DialogTitle>
+                       </DialogHeader>
+                       <div className="space-y-4">
+                         <Input
+                           placeholder="Search broadcasts..."
+                           value={broadcastSearch}
+                           onChange={(e) => setBroadcastSearch(e.target.value)}
+                           className="bg-black/50 border-white/10"
+                         />
+                         {(() => {
+                           const filtered = broadcasts.filter((b: any) =>
+                             b.title.toLowerCase().includes(broadcastSearch.toLowerCase())
+                           );
+                           if (filtered.length === 0) {
+                             return (
+                               <div className="text-center py-12 text-muted-foreground">
+                                 {broadcasts.length === 0 ? "No broadcasts found." : "No matches."}
+                               </div>
+                             );
+                           }
+                           return (
+                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-[60vh] overflow-auto p-1">
+                               {filtered.map((b: any) => (
+                                 <div
+                                   key={b.id}
+                                   onClick={() => {
+                                     setBroadcastId(b.id);
+                                     setIsBroadcastDialogOpen(false);
+                                     setBroadcastSearch("");
+                                   }}
+                                   className="cursor-pointer border border-white/10 rounded-xl overflow-hidden hover:border-primary bg-black/30"
+                                 >
+                                   {b.thumbnail ? (
+                                     <Image src={b.thumbnail} alt="" width={180} height={100} className="w-full h-28 object-cover" />
+                                   ) : (
+                                     <div className="h-28 bg-white/10 flex items-center justify-center text-xs text-muted-foreground">No thumbnail</div>
+                                   )}
+                                   <div className="p-3 text-sm">
+                                     <div className="font-medium line-clamp-2 text-white">{b.title}</div>
+                                     <div className="text-xs text-muted-foreground mt-1">
+                                       {b.scheduledStartTime ? new Date(b.scheduledStartTime).toLocaleString() : ""}
+                                     </div>
+                                   </div>
+                                 </div>
+                               ))}
+                             </div>
+                           );
+                         })()}
+                       </div>
+                       <div className="flex gap-2 pt-2">
+                         <Button
+                           variant="ghost"
+                           onClick={() => {
+                             setBroadcastId("");
+                             setIsBroadcastDialogOpen(false);
+                             setBroadcastSearch("");
+                           }}
+                         >
+                           Use no broadcast
+                         </Button>
+                         <Button
+                           variant="outline"
+                           onClick={() => {
+                             setBroadcastSearch("");
+                           }}
+                         >
+                           Clear search
+                         </Button>
+                       </div>
+                     </DialogContent>
+                   </Dialog>
+
+                   <Card className="glass border-white/5">
+                     <CardHeader>
+                       <CardTitle className="text-white">Scheduled Streams</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <div className="rounded-xl border border-white/10 overflow-hidden bg-black/20">
@@ -787,149 +1004,61 @@ export default function Dashboard() {
                           </TableBody>
                         </Table>
                       </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
+                     </CardContent>
+                   </Card>
 
-              {activeTab === "videos" && (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-3xl font-bold tracking-tight text-white">Videos</h2>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <Card className="glass border-white/5 max-w-md mx-auto">
-                      <CardHeader>
-                        <CardTitle className="text-white">Upload Video</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                         <div className="space-y-4">
-                           <div className="space-y-2">
-                             <Label className="text-white/80">Select File</Label>
-                             <div 
-                               className="flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-xl p-8 hover:bg-white/5 hover:border-primary/50 transition-all cursor-pointer bg-black/20" 
-                               onClick={() => document.getElementById('file-upload')?.click()}
-                             >
-                               <Folder className="w-12 h-12 text-white/40 mb-3" />
-                               <span className="text-sm text-white/70 text-center font-medium">
-                                 {file ? file.name : "Click to select a video file"}
-                               </span>
-                               <Input 
-                                 id="file-upload"
-                                 type="file" 
-                                 accept="video/*" 
-                                 onChange={e => {
-                                   const selected = e.target.files?.[0] || null;
-                                   setFile(selected);
-                                   if (selected) handleUpload(selected);
-                                 }} 
-                                 className="hidden"
-                                 disabled={uploading}
-                               />
-                             </div>
-                           </div>
-                           {uploading && (
-                             <div className="space-y-2 pt-2">
-                               <div className="flex justify-between text-xs text-white/70 font-medium">
-                                 <span>Uploading...</span>
-                                 <span>{uploadProgress}%</span>
-                               </div>
-                               <Progress value={uploadProgress} className="h-1.5 bg-white/10" />
-                             </div>
-                           )}
-                         </div>
-                      </CardContent>
-                    </Card>
+                   <Card className="glass border-white/5">
+                     <CardHeader>
+                       <CardTitle className="text-white">Uploaded Videos</CardTitle>
+                     </CardHeader>
+                     <CardContent>
+                       <div className="rounded-xl border border-white/10 overflow-hidden bg-black/20">
+                         <Table>
+                           <TableHeader className="bg-white/5">
+                             <TableRow className="border-white/10 hover:bg-transparent">
+                               <TableHead className="text-white/70">Filename</TableHead>
+                               <TableHead className="text-white/70">Size</TableHead>
+                               <TableHead className="text-white/70">Uploaded At</TableHead>
+                               <TableHead className="text-right text-white/70">Actions</TableHead>
+                             </TableRow>
+                           </TableHeader>
+                           <TableBody>
+                             {videos.length === 0 ? (
+                               <TableRow className="border-white/10 hover:bg-white/5">
+                                 <TableCell colSpan={4} className="text-center text-muted-foreground py-8">No videos uploaded</TableCell>
+                               </TableRow>
+                             ) : (
+                               videos.map(v => (
+                                 <TableRow key={v.id} className="border-white/10 hover:bg-white/5">
+                                   <TableCell className="font-medium text-white">
+                                     {v.original_name}
+                                     {v.encoding_status === 'encoding' && (
+                                       <div className="mt-2">
+                                         <div className="text-xs text-muted-foreground mb-1">Encoding: {v.encoding_progress}%</div>
+                                         <Progress value={v.encoding_progress} className="h-1.5 bg-white/10" />
+                                       </div>
+                                     )}
+                                     {v.encoding_status === 'failed' && (
+                                       <div className="text-xs text-red-400 mt-1">Encoding failed</div>
+                                     )}
+                                   </TableCell>
+                                   <TableCell className="text-white/80">{(v.size / (1024 * 1024)).toFixed(2)} MB</TableCell>
+                                   <TableCell className="text-white/60 text-sm">{new Date(v.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
+                                   <TableCell className="text-right">
+                                     <Button variant="ghost" size="sm" onClick={() => handleDeleteVideo(v.id)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10">Delete</Button>
+                                   </TableCell>
+                                 </TableRow>
+                               ))
+                             )}
+                           </TableBody>
+                         </Table>
+                       </div>
+                     </CardContent>
+                   </Card>
+                 </div>
+               )}
 
-                    <Card className="glass border-white/5 max-w-md mx-auto">
-                      <CardHeader>
-                        <CardTitle className="text-white">Import from URL</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <form onSubmit={handleImport} className="space-y-4">
-                          <div className="space-y-2">
-                            <Label className="text-white/80">Direct Download URL</Label>
-                            <Input 
-                              type="url" 
-                              value={importUrl} 
-                              onChange={e => setImportUrl(e.target.value)} 
-                              placeholder="https://..." 
-                              required 
-                            />
-                            <p className="text-xs text-white/50">
-                              For Google Drive, use a direct download link format.
-                            </p>
-                          </div>
-                          <Button type="submit" disabled={importing || !importUrl} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
-                            {importing ? "Importing..." : "Import Video"}
-                          </Button>
-                          {importing && (
-                            <div className="space-y-2 pt-2">
-                              <div className="flex justify-between text-xs text-white/70 font-medium">
-                                <span>Importing...</span>
-                                <span>{importProgress}%</span>
-                              </div>
-                              <Progress value={importProgress} className="h-1.5 bg-white/10" />
-                            </div>
-                          )}
-                        </form>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  <Card className="glass border-white/5">
-                    <CardHeader>
-                      <CardTitle className="text-white">Uploaded Videos</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="rounded-xl border border-white/10 overflow-hidden bg-black/20">
-                        <Table>
-                          <TableHeader className="bg-white/5">
-                            <TableRow className="border-white/10 hover:bg-transparent">
-                              <TableHead className="text-white/70">Filename</TableHead>
-                              <TableHead className="text-white/70">Size</TableHead>
-                              <TableHead className="text-white/70">Uploaded At</TableHead>
-                              <TableHead className="text-right text-white/70">Actions</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {videos.length === 0 ? (
-                              <TableRow className="border-white/10 hover:bg-white/5">
-                                <TableCell colSpan={4} className="text-center text-muted-foreground py-8">No videos uploaded</TableCell>
-                              </TableRow>
-                            ) : (
-                              videos.map(v => (
-                                <TableRow key={v.id} className="border-white/10 hover:bg-white/5">
-                                  <TableCell className="font-medium text-white">
-                                    {v.original_name}
-                                    {v.encoding_status === 'encoding' && (
-                                      <div className="mt-2">
-                                        <div className="text-xs text-muted-foreground mb-1">Encoding: {v.encoding_progress}%</div>
-                                        <Progress value={v.encoding_progress} className="h-1.5 bg-white/10" />
-                                      </div>
-                                    )}
-                                    {v.encoding_status === 'failed' && (
-                                      <div className="text-xs text-red-400 mt-1">Encoding failed</div>
-                                    )}
-                                  </TableCell>
-                                  <TableCell className="text-white/80">{(v.size / (1024 * 1024)).toFixed(2)} MB</TableCell>
-                                  <TableCell className="text-white/60 text-sm">{new Date(v.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
-                                  <TableCell className="text-right">
-                                    <Button variant="ghost" size="sm" onClick={() => handleDeleteVideo(v.id)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10">Delete</Button>
-                                  </TableCell>
-                                </TableRow>
-                              ))
-                            )}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-
-              {activeTab === "keys" && (
+                {activeTab === "keys" && (
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <h2 className="text-3xl font-bold tracking-tight text-white">Stream Keys</h2>
