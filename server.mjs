@@ -1006,7 +1006,7 @@ async function getNetworkStats() {
   });
 
   server.post('/api/streams', authenticateToken, async (req, res) => {
-    let { video_id, rtmp_url, stream_key, scheduled_for, broadcast_id } = req.body;
+    let { video_id, rtmp_url, stream_key, scheduled_for, broadcast_id, broadcast_title } = req.body;
     
     if (!video_id || !rtmp_url || !stream_key || !scheduled_for) {
       return res.status(400).json({ error: 'Missing fields' });
