@@ -1313,7 +1313,7 @@ export default function Dashboard() {
 
       {/* Create YouTube Stream Modal */}
       <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
-        <DialogContent className="bg-background/95 backdrop-blur-sm border-white/10 w-[min(96vw,1800px)] max-w-none max-h-[90vh] flex flex-col overflow-hidden">
+        <DialogContent className="bg-background/95 backdrop-blur-sm border-white/10 w-[min(96vw,1260px)] max-w-none max-h-[90vh] flex flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle className="text-white">Create New YouTube Stream</DialogTitle>
             <DialogDescription className="text-white/60">
@@ -1333,9 +1333,12 @@ export default function Dashboard() {
                       <div className="px-3 py-2 text-sm text-muted-foreground">No recent broadcasts</div>
                     )}
                     {modalRecentBroadcasts.map((b: any) => (
-                      <SelectItem key={b.id} value={b.id} className="py-2">
-                        {b._statusTag} • {b.title} {b.scheduledStartTime ? `(${new Date(b.scheduledStartTime).toLocaleString()})` : ''}
-                      </SelectItem>
+                       <SelectItem key={b.id} value={b.id} className="py-2">
+                         <div>
+                           {b._statusTag} • {b.title} {b.scheduledStartTime ? `(${new Date(b.scheduledStartTime).toLocaleString()})` : ''}
+                           <div className="text-[10px] text-white/40 mt-0.5">{b.id}</div>
+                         </div>
+                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
