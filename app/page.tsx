@@ -59,6 +59,13 @@ export default function Dashboard() {
   const [creatingStream, setCreatingStream] = useState(false);
   const [createThumbnail, setCreateThumbnail] = useState<string | null>(null);
   const [createThumbnailPreview, setCreateThumbnailPreview] = useState<string>("");
+  const [createPrivacy, setCreatePrivacy] = useState<"private" | "unlisted" | "public">("private");
+  const [createAutoStart, setCreateAutoStart] = useState(true);
+  const [createAutoStop, setCreateAutoStop] = useState(false);
+  const [createDvr, setCreateDvr] = useState(false);
+  const [createLatency, setCreateLatency] = useState<"normal" | "low" | "ultraLow">("normal");
+  const [modalRecentBroadcasts, setModalRecentBroadcasts] = useState<any[]>([]);
+  const [selectedRecentForCopy, setSelectedRecentForCopy] = useState("");
 
 
 
@@ -170,6 +177,39 @@ export default function Dashboard() {
     }
   };
 
+  const loadModalRecentBroadcasts = async () => {
+    if (!youtubeAuthenticated) {
+      setModalRecentBroadcasts([]);
+      return;
+    }
+    try {
+      const [upcomingRes, liveRes, completedRes] = await Promise.all([
+        fetch("/api/youtube/broadcasts?broadcastStatus=upcoming&maxResults=10"),
+        fetch("/api/youtube/broadcasts?broadcastStatus=active&maxResults=10"),
+        fetch("/api/youtube/broadcasts?broadcastStatus=completed&maxResults=10"),
+      ]);
+      const [upcoming, live, completed] = await Promise.all([
+        upcomingRes.ok ? upcomingRes.json() : { broadcasts: [] },
+        liveRes.ok ? liveRes.json() : { broadcasts: [] },
+        completedRes.ok ? completedRes.json() : { broadcasts: [] },
+      ]);
+      const all = [
+        ...(upcoming.broadcasts || []).map((b: any) => ({ ...b, _statusTag: 'UPCOMING' })),
+        ...(live.broadcasts || []).map((b: any) => ({ ...b, _statusTag: 'LIVE' })),
+        ...(completed.broadcasts || []).map((b: any) => ({ ...b, _statusTag: 'RECENT' })),
+      ];
+      const seen = new Set<string>();
+      const deduped = all.filter((b: any) => {
+        if (seen.has(b.id)) return false;
+        seen.add(b.id);
+        return true;
+      });
+      setModalRecentBroadcasts(deduped);
+    } catch {
+      setModalRecentBroadcasts([]);
+    }
+  };
+
   const handleYouTubeAuth = () => {
     window.location.href = "/api/youtube/auth";
   };
@@ -194,6 +234,9 @@ export default function Dashboard() {
     if (!createTitle) {
       return toast.error("Title is required");
     }
+    if (createTitle.length > 100) {
+      return toast.error("Title must be 100 characters or less");
+    }
 
     setCreatingStream(true);
     try {
@@ -204,8 +247,12 @@ export default function Dashboard() {
           title: createTitle,
           description: createDescription,
           scheduledStartTime: createScheduledTime || undefined,
-          privacyStatus: "private",
+          privacyStatus: createPrivacy,
           thumbnail: createThumbnail || undefined,
+          enableAutoStart: createAutoStart,
+          enableAutoStop: createAutoStop,
+          enableDvr: createDvr,
+          latencyPreference: createLatency,
         }),
       });
 
@@ -228,6 +275,13 @@ export default function Dashboard() {
         setCreateScheduledTime("");
         setCreateThumbnail(null);
         setCreateThumbnailPreview("");
+        setCreatePrivacy("private");
+        setCreateAutoStart(true);
+        setCreateAutoStop(false);
+        setCreateDvr(false);
+        setCreateLatency("normal");
+        setSelectedRecentForCopy("");
+        setModalRecentBroadcasts([]);
 
         if (data.thumbnailWarning) {
           toast.warning(data.thumbnailWarning);
@@ -259,7 +313,46 @@ export default function Dashboard() {
     setCreateDescription("");
     setCreateThumbnail(null);
     setCreateThumbnailPreview("");
+    setCreatePrivacy("private");
+    setCreateAutoStart(true);
+    setCreateAutoStop(false);
+    setCreateDvr(false);
+    setCreateLatency("normal");
+    setSelectedRecentForCopy("");
+    setModalRecentBroadcasts([]);
     setShowCreateModal(true);
+    if (youtubeAuthenticated) {
+      loadModalRecentBroadcasts();
+    }
+  };
+
+  const handleSelectRecent = (id: string) => {
+    const found = modalRecentBroadcasts.find((b: any) => b.id === id);
+    if (!found) return;
+    setCreateTitle(found.title || "My Live Stream");
+    setCreateDescription(found.description || "");
+    setCreatePrivacy((found.privacyStatus as any) || "private");
+    const cd = found.contentDetails || {};
+    setCreateAutoStart(cd.enableAutoStart !== false);
+    setCreateAutoStop(!!cd.enableAutoStop);
+    setCreateDvr(!!cd.enableDvr);
+    setCreateLatency((cd.latencyPreference as any) || "normal");
+    // Always force future time, never copy past
+    const future = new Date(Date.now() + 30 * 60 * 1000).toISOString().slice(0, 16);
+    setCreateScheduledTime(future);
+    setSelectedRecentForCopy(id);
+  };
+
+  const clearRecentSelection = () => {
+    setSelectedRecentForCopy("");
+    // Re-apply defaults
+    setCreateTitle("My Live Stream");
+    setCreateDescription("");
+    setCreatePrivacy("private");
+    setCreateAutoStart(true);
+    setCreateAutoStop(false);
+    setCreateDvr(false);
+    setCreateLatency("normal");
   };
 
   const handleSaveKey = async (e: React.FormEvent) => {
@@ -1220,7 +1313,7 @@ export default function Dashboard() {
 
       {/* Create YouTube Stream Modal */}
       <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
-        <DialogContent className="bg-background/95 backdrop-blur-sm border-white/10 max-w-md">
+        <DialogContent className="bg-background/95 backdrop-blur-sm border-white/10 max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-white">Create New YouTube Stream</DialogTitle>
             <DialogDescription className="text-white/60">
@@ -1229,22 +1322,53 @@ export default function Dashboard() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
+              <Label className="text-white/80">Copy details from recent broadcast (optional)</Label>
+              <div className="flex gap-2">
+                <Select value={selectedRecentForCopy || undefined} onValueChange={(val) => { if (val) handleSelectRecent(val); }}>
+                  <SelectTrigger className="bg-black/50 border-white/10 text-white">
+                    <SelectValue placeholder="Select recent broadcast" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-background border-white/10 max-h-[300px]">
+                    {modalRecentBroadcasts.length === 0 && (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">No recent broadcasts</div>
+                    )}
+                    {modalRecentBroadcasts.map((b: any) => (
+                      <SelectItem key={b.id} value={b.id} className="py-2">
+                        {b._statusTag} • {b.title} {b.scheduledStartTime ? `(${new Date(b.scheduledStartTime).toLocaleString()})` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedRecentForCopy && (
+                  <Button type="button" variant="ghost" size="sm" onClick={clearRecentSelection}>Clear</Button>
+                )}
+              </div>
+              <p className="text-xs text-white/40">Selecting overwrites fields below. Scheduled time defaults to ~30 min from now.</p>
+            </div>
+
+            <div className="space-y-2">
               <Label className="text-white/80">Title *</Label>
               <Input
                 value={createTitle}
                 onChange={e => setCreateTitle(e.target.value)}
                 placeholder="My Live Stream"
+                maxLength={100}
                 required
               />
+              <div className="text-xs text-white/50 text-right">{createTitle.length} / 100</div>
             </div>
+
             <div className="space-y-2">
               <Label className="text-white/80">Description</Label>
-              <Input
+              <textarea
                 value={createDescription}
                 onChange={e => setCreateDescription(e.target.value)}
                 placeholder="Optional description"
+                rows={4}
+                className="w-full min-h-[96px] resize-y overflow-auto rounded-md border border-white/10 bg-black/50 px-3 py-2 text-sm text-white placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
+
             <div className="space-y-2">
               <Label className="text-white/80">Scheduled Start Time *</Label>
               <Input
@@ -1256,6 +1380,7 @@ export default function Dashboard() {
               />
               <p className="text-xs text-white/40">Leave empty to start in ~30 minutes</p>
             </div>
+
             <div className="space-y-2">
               <Label className="text-white/80">Thumbnail (optional)</Label>
               <Input
@@ -1281,11 +1406,12 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
+
             <div className="space-y-2">
               <Label className="text-white/80">Privacy</Label>
-              <Select value="private" onValueChange={() => {}} disabled>
+              <Select value={createPrivacy} onValueChange={(v) => setCreatePrivacy(v as any)}>
                 <SelectTrigger className="bg-black/50 border-white/10 text-white">
-                  <SelectValue placeholder="Private" />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-background border-white/10">
                   <SelectItem value="private">Private</SelectItem>
@@ -1293,7 +1419,34 @@ export default function Dashboard() {
                   <SelectItem value="public">Public</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-white/40">Defaults to Private. Can be changed in YouTube Studio later.</p>
+            </div>
+
+            <div className="space-y-3 pt-2">
+              <Label className="text-white/80 text-sm">Stream Settings</Label>
+              <div className="flex flex-col gap-2 text-sm">
+                <label className="flex items-center gap-2 text-white/80">
+                  <input type="checkbox" checked={createAutoStart} onChange={e=>setCreateAutoStart(e.target.checked)} className="accent-primary" /> Auto start
+                </label>
+                <label className="flex items-center gap-2 text-white/80">
+                  <input type="checkbox" checked={createAutoStop} onChange={e=>setCreateAutoStop(e.target.checked)} className="accent-primary" /> Auto stop
+                </label>
+                <label className="flex items-center gap-2 text-white/80">
+                  <input type="checkbox" checked={createDvr} onChange={e=>setCreateDvr(e.target.checked)} className="accent-primary" /> DVR
+                </label>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-white/80 text-xs">Latency</Label>
+                <Select value={createLatency} onValueChange={(v)=>setCreateLatency(v as any)}>
+                  <SelectTrigger className="bg-black/50 border-white/10 text-white h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-background border-white/10">
+                    <SelectItem value="normal">Normal</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="ultraLow">Ultra low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
           <DialogFooter className="border-t border-white/10">

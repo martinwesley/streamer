@@ -171,7 +171,7 @@ async function uploadYouTubeThumbnail(broadcastId, thumbnailBase64) {
   }
 }
 
-async function createYouTubeStream(title, description, scheduledStartTime, privacyStatus = 'private', thumbnailBase64 = null) {
+async function createYouTubeStream(title, description, scheduledStartTime, privacyStatus = 'private', thumbnailBase64 = null, settings = {}) {
   try {
     const accessToken = await getYouTubeAccessToken();
     if (!accessToken) {
@@ -180,6 +180,13 @@ async function createYouTubeStream(title, description, scheduledStartTime, priva
 
     const now = new Date();
     const scheduledTime = scheduledStartTime || new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+
+    const {
+      enableAutoStart = true,
+      enableAutoStop = false,
+      enableDvr = false,
+      latencyPreference = 'normal',
+    } = settings;
 
     // 1. Create liveBroadcast (with contentDetails for auto-start/stop, dvr, latency)
     const broadcastResponse = await fetch('https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status,contentDetails', {
@@ -199,10 +206,10 @@ async function createYouTubeStream(title, description, scheduledStartTime, priva
           selfDeclaredMadeForKids: false,
         },
         contentDetails: {
-          enableAutoStart: true,
-          enableAutoStop: false,
-          enableDvr: true,
-          latencyPreference: 'normal',
+          enableAutoStart,
+          enableAutoStop,
+          enableDvr,
+          latencyPreference,
         },
       }),
     });
@@ -674,14 +681,18 @@ app.prepare().then(async () => {
       const accessToken = await getYouTubeAccessToken();
       if (!accessToken) return res.status(401).json({ error: 'YouTube not authenticated' });
 
-      const response = await fetch('https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status&broadcastStatus=upcoming&maxResults=50', {
+      const broadcastStatus = req.query.broadcastStatus || 'upcoming';
+      const maxResults = req.query.maxResults || '50';
+      const url = `https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status,contentDetails&broadcastStatus=${encodeURIComponent(broadcastStatus)}&maxResults=${encodeURIComponent(maxResults)}`;
+
+      const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${accessToken}` },
       });
 
       if (!response.ok) throw new Error('Failed to fetch broadcasts');
 
       const data = await response.json();
-      const broadcasts = data.items.map(item => ({
+      const broadcasts = (data.items || []).map(item => ({
         id: item.id,
         title: item.snippet.title,
         description: item.snippet.description,
@@ -690,6 +701,13 @@ app.prepare().then(async () => {
            || item.snippet.thumbnails?.default?.url,
         scheduledStartTime: item.snippet.scheduledStartTime,
         status: item.status.lifeCycleStatus,
+        privacyStatus: item.status?.privacyStatus,
+        contentDetails: {
+          enableAutoStart: item.contentDetails?.enableAutoStart,
+          enableAutoStop: item.contentDetails?.enableAutoStop,
+          enableDvr: item.contentDetails?.enableDvr,
+          latencyPreference: item.contentDetails?.latencyPreference,
+        },
       }));
 
       res.json({ broadcasts });
@@ -712,13 +730,20 @@ app.prepare().then(async () => {
   // Create new YouTube live broadcast + stream + bind (combined to minimize quota usage)
   server.post('/api/youtube/create-stream', authenticateToken, async (req, res) => {
     try {
-      const { title, description, scheduledStartTime, privacyStatus, thumbnail } = req.body;
+      const { title, description, scheduledStartTime, privacyStatus, thumbnail, enableAutoStart, enableAutoStop, enableDvr, latencyPreference } = req.body;
 
       if (!title) {
         return res.status(400).json({ error: 'Title is required' });
       }
 
-      const result = await createYouTubeStream(title, description, scheduledStartTime, privacyStatus, thumbnail || null);
+      const settings = {
+        enableAutoStart: enableAutoStart !== undefined ? enableAutoStart : true,
+        enableAutoStop: enableAutoStop !== undefined ? enableAutoStop : false,
+        enableDvr: enableDvr !== undefined ? enableDvr : false,
+        latencyPreference: latencyPreference || 'normal',
+      };
+
+      const result = await createYouTubeStream(title, description, scheduledStartTime, privacyStatus, thumbnail || null, settings);
 
       res.json({
         success: true,
