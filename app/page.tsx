@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
 import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Key, Calendar, LayoutDashboard, LogOut, RefreshCw } from "lucide-react";
 import axios from "axios";
@@ -50,9 +50,7 @@ export default function Dashboard() {
   const [broadcasts, setBroadcasts] = useState<any[]>([]);
   const [youtubeAuthenticated, setYoutubeAuthenticated] = useState(false);
 
-  // Broadcast dialog state
-  const [isBroadcastDialogOpen, setIsBroadcastDialogOpen] = useState(false);
-  const [broadcastSearch, setBroadcastSearch] = useState("");
+
 
   // Saved Keys state
   const [savedKeys, setSavedKeys] = useState<any[]>([]);
@@ -835,41 +833,74 @@ export default function Dashboard() {
                             style={{ colorScheme: 'dark' }}
                           />
                         </div>
-                         <div className="space-y-2 md:col-span-2">
-                           <Label className="text-white/80">YouTube Broadcast (Optional)</Label>
-                           {!youtubeAuthenticated ? (
-                             <Button onClick={handleYouTubeAuth} variant="outline" className="w-full">
-                               Connect YouTube Account
-                             </Button>
-                           ) : (
-                             <div className="flex items-center gap-2">
-                               <Button
-                                 type="button"
-                                 variant="outline"
-                                 onClick={() => setIsBroadcastDialogOpen(true)}
-                                 className="flex-1 justify-start text-left"
-                               >
-                                 {broadcastId
-                                   ? (broadcasts.find(b => b.id === broadcastId)?.title || "Selected broadcast")
-                                   : "Choose YouTube Broadcast"}
-                               </Button>
-                               {broadcastId && (
-                                 <Button
-                                   type="button"
-                                   variant="ghost"
-                                   size="sm"
-                                   onClick={() => setBroadcastId("")}
-                                   title="Clear selection"
-                                 >
-                                   <X className="h-4 w-4" />
-                                 </Button>
-                               )}
-                               <Button onClick={handleYouTubeDisconnect} variant="outline" size="sm" className="p-2" title="Disconnect YouTube Account">
-                                 <LogOut className="h-4 w-4" />
-                               </Button>
-                             </div>
-                           )}
-                         </div>
+                          <div className="space-y-2 md:col-span-2">
+                            <Label className="text-white/80">YouTube Broadcast (Optional)</Label>
+                            {!youtubeAuthenticated ? (
+                              <Button onClick={handleYouTubeAuth} variant="outline" className="w-full">
+                                Connect YouTube Account
+                              </Button>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <Select value={broadcastId || undefined} onValueChange={(val) => setBroadcastId(val || "")}>
+                                  <SelectTrigger className="bg-black/50 border-white/10 text-white h-auto min-h-[72px] py-3">
+                                    <SelectValue placeholder="Choose YouTube Broadcast">
+                                      {broadcastId ? (
+                                        <div className="flex items-center gap-3 text-left w-full">
+                                          {broadcasts.find(b => b.id === broadcastId)?.thumbnail && (
+                                            <Image src={broadcasts.find(b => b.id === broadcastId)!.thumbnail} alt="" width={64} height={48} className="w-16 h-12 object-cover rounded flex-shrink-0" />
+                                          )}
+                                          <div className="min-w-0 flex-1">
+                                            <div className="font-medium text-white text-sm leading-tight line-clamp-2">
+                                              {broadcasts.find(b => b.id === broadcastId)?.title}
+                                            </div>
+                                            <div className="text-xs text-muted-foreground mt-1">
+                                              {broadcasts.find(b => b.id === broadcastId)?.scheduledStartTime ? new Date(broadcasts.find(b => b.id === broadcastId)!.scheduledStartTime).toLocaleString() : ""}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ) : "Choose YouTube Broadcast"}
+                                    </SelectValue>
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-background border-white/10 max-h-[400px]">
+                                    {broadcasts.length === 0 && (
+                                      <div className="px-3 py-4 text-sm text-muted-foreground">No broadcasts found.</div>
+                                    )}
+                                    {broadcasts.map((b: any) => (
+                                      <SelectItem key={b.id} value={b.id} className="py-4 px-3 cursor-pointer">
+                                        <div className="flex items-center gap-4 w-full">
+                                          {b.thumbnail ? (
+                                            <Image src={b.thumbnail} alt="" width={80} height={56} className="w-20 h-14 object-cover rounded flex-shrink-0" />
+                                          ) : (
+                                            <div className="w-20 h-14 bg-white/10 rounded flex items-center justify-center text-xs text-muted-foreground flex-shrink-0">No thumb</div>
+                                          )}
+                                          <div className="min-w-0 flex-1">
+                                            <div className="font-medium text-white text-sm leading-tight line-clamp-3 pr-2">{b.title}</div>
+                                            <div className="text-xs text-muted-foreground mt-1.5">
+                                              {b.scheduledStartTime ? new Date(b.scheduledStartTime).toLocaleString() : ""}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {broadcastId && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setBroadcastId("")}
+                                    title="Clear selection"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                )}
+                                <Button onClick={handleYouTubeDisconnect} variant="outline" size="sm" className="p-2" title="Disconnect YouTube Account">
+                                  <LogOut className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
                         <div className="md:col-span-2 pt-2">
                           <Button type="submit" disabled={scheduling} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
                             {scheduling ? "Scheduling..." : "Schedule Stream"}
@@ -879,80 +910,7 @@ export default function Dashboard() {
                     </CardContent>
                    </Card>
 
-                   <Dialog open={isBroadcastDialogOpen} onOpenChange={setIsBroadcastDialogOpen}>
-                     <DialogContent className="max-w-5xl">
-                       <DialogHeader>
-                         <DialogTitle>Choose YouTube Broadcast</DialogTitle>
-                       </DialogHeader>
-                       <div className="space-y-4">
-                         <Input
-                           placeholder="Search broadcasts..."
-                           value={broadcastSearch}
-                           onChange={(e) => setBroadcastSearch(e.target.value)}
-                           className="bg-black/50 border-white/10"
-                         />
-                         {(() => {
-                           const filtered = broadcasts.filter((b: any) =>
-                             b.title.toLowerCase().includes(broadcastSearch.toLowerCase())
-                           );
-                           if (filtered.length === 0) {
-                             return (
-                               <div className="text-center py-12 text-muted-foreground">
-                                 {broadcasts.length === 0 ? "No broadcasts found." : "No matches."}
-                               </div>
-                             );
-                           }
-                           return (
-                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-[60vh] overflow-auto p-1">
-                               {filtered.map((b: any) => (
-                                 <div
-                                   key={b.id}
-                                   onClick={() => {
-                                     setBroadcastId(b.id);
-                                     setIsBroadcastDialogOpen(false);
-                                     setBroadcastSearch("");
-                                   }}
-                                   className="cursor-pointer border border-white/10 rounded-xl overflow-hidden hover:border-primary bg-black/30"
-                                 >
-                                   {b.thumbnail ? (
-                                     <Image src={b.thumbnail} alt="" width={180} height={100} className="w-full h-28 object-cover" />
-                                   ) : (
-                                     <div className="h-28 bg-white/10 flex items-center justify-center text-xs text-muted-foreground">No thumbnail</div>
-                                   )}
-                                   <div className="p-3 text-sm">
-                                     <div className="font-medium line-clamp-2 text-white">{b.title}</div>
-                                     <div className="text-xs text-muted-foreground mt-1">
-                                       {b.scheduledStartTime ? new Date(b.scheduledStartTime).toLocaleString() : ""}
-                                     </div>
-                                   </div>
-                                 </div>
-                               ))}
-                             </div>
-                           );
-                         })()}
-                       </div>
-                       <div className="flex gap-2 pt-2">
-                         <Button
-                           variant="ghost"
-                           onClick={() => {
-                             setBroadcastId("");
-                             setIsBroadcastDialogOpen(false);
-                             setBroadcastSearch("");
-                           }}
-                         >
-                           Use no broadcast
-                         </Button>
-                         <Button
-                           variant="outline"
-                           onClick={() => {
-                             setBroadcastSearch("");
-                           }}
-                         >
-                           Clear search
-                         </Button>
-                       </div>
-                     </DialogContent>
-                   </Dialog>
+
 
                    <Card className="glass border-white/5">
                      <CardHeader>
