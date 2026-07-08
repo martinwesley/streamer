@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 import { Progress } from "@/components/ui/progress";
 import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Key, Calendar, LayoutDashboard, LogOut, RefreshCw } from "lucide-react";
@@ -49,6 +50,13 @@ export default function Dashboard() {
   const [selectedSavedKey, setSelectedSavedKey] = useState("");
   const [broadcasts, setBroadcasts] = useState<any[]>([]);
   const [youtubeAuthenticated, setYoutubeAuthenticated] = useState(false);
+
+  // Create stream modal state
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createTitle, setCreateTitle] = useState("");
+  const [createDescription, setCreateDescription] = useState("");
+  const [createScheduledTime, setCreateScheduledTime] = useState("");
+  const [creatingStream, setCreatingStream] = useState(false);
 
 
 
@@ -178,6 +186,62 @@ export default function Dashboard() {
     } catch (error) {
       toast.error("Error disconnecting from YouTube");
     }
+  };
+
+  const handleCreateStream = async () => {
+    if (!createTitle) {
+      return toast.error("Title is required");
+    }
+
+    setCreatingStream(true);
+    try {
+      const res = await fetch("/api/youtube/create-stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: createTitle,
+          description: createDescription,
+          scheduledStartTime: createScheduledTime || undefined,
+          privacyStatus: "private",
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        toast.success("YouTube stream created successfully");
+
+        // Auto-populate schedule form
+        setBroadcastId(data.broadcastId);
+        setRtmpUrl(data.rtmpUrl);
+        setStreamKey(data.streamKey);
+        setScheduledFor(data.scheduledFor.replace('Z', '').slice(0, 16)); // format for datetime-local
+
+        setShowCreateModal(false);
+
+        // Reset modal form
+        setCreateTitle("");
+        setCreateDescription("");
+        setCreateScheduledTime("");
+
+        // Refresh broadcasts list
+        fetchBroadcasts();
+      } else {
+        toast.error(data.error || "Failed to create stream");
+      }
+    } catch (error) {
+      toast.error("An error occurred while creating the stream");
+    } finally {
+      setCreatingStream(false);
+    }
+  };
+
+  const openCreateModal = () => {
+    const defaultTime = new Date(Date.now() + 30 * 60 * 1000).toISOString().slice(0, 16);
+    setCreateScheduledTime(defaultTime);
+    setCreateTitle("My Live Stream");
+    setCreateDescription("");
+    setShowCreateModal(true);
   };
 
   const handleSaveKey = async (e: React.FormEvent) => {

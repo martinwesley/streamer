@@ -141,6 +141,114 @@ async function endYouTubeBroadcast(broadcastId) {
   }
 }
 
+async function createYouTubeStream(title, description, scheduledStartTime, privacyStatus = 'private') {
+  try {
+    const accessToken = await getYouTubeAccessToken();
+    if (!accessToken) {
+      throw new Error('YouTube not authenticated');
+    }
+
+    const now = new Date();
+    const scheduledTime = scheduledStartTime || new Date(now.getTime() + 30 * 60 * 1000).toISOString(); // default 30 min from now
+
+    // 1. Create liveBroadcast
+    const broadcastResponse = await fetch('https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        snippet: {
+          title: title || 'New Live Stream',
+          description: description || '',
+          scheduledStartTime: scheduledTime,
+        },
+        status: {
+          privacyStatus: privacyStatus,
+          selfDeclaredMadeForKids: false,
+        },
+      }),
+    });
+
+    if (!broadcastResponse.ok) {
+      const err = await broadcastResponse.text();
+      throw new Error(`Failed to create broadcast: ${err}`);
+    }
+
+    const broadcastData = await broadcastResponse.json();
+    const broadcastId = broadcastData.id;
+
+    // 2. Create liveStream
+    const streamResponse = await fetch('https://www.googleapis.com/youtube/v3/liveStreams?part=snippet,cdn', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        snippet: {
+          title: title || 'New Live Stream',
+        },
+        cdn: {
+          ingestionType: 'rtmp',
+          frameRate: '30fps',
+          resolution: '1080p',
+          ingestionInfo: {
+            // Will be populated after bind
+          },
+        },
+      }),
+    });
+
+    if (!streamResponse.ok) {
+      const err = await streamResponse.text();
+      // Cleanup broadcast on failure
+      await fetch(`https://www.googleapis.com/youtube/v3/liveBroadcasts?id=${broadcastId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+      }).catch(() => {});
+      throw new Error(`Failed to create stream: ${err}`);
+    }
+
+    const streamData = await streamResponse.json();
+    const streamId = streamData.id;
+    const streamKey = streamData.cdn.ingestionInfo.streamName;
+
+    // 3. Bind broadcast and stream
+    const bindResponse = await fetch(`https://www.googleapis.com/youtube/v3/liveBroadcasts/bind?id=${broadcastId}&streamId=${streamId}&part=id,snippet,status`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!bindResponse.ok) {
+      const err = await bindResponse.text();
+      // Cleanup on bind failure
+      await fetch(`https://www.googleapis.com/youtube/v3/liveBroadcasts?id=${broadcastId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+      }).catch(() => {});
+      throw new Error(`Failed to bind stream: ${err}`);
+    }
+
+    const rtmpUrl = 'rtmp://a.rtmp.youtube.com/live2';
+
+    return {
+      broadcastId,
+      rtmpUrl,
+      streamKey,
+      scheduledFor: scheduledTime,
+      title: title || 'New Live Stream',
+    };
+  } catch (error) {
+    console.error('YouTube stream creation error:', error);
+    throw error;
+  }
+}
+
 async function initDb() {
   await db.execute(`
     CREATE TABLE IF NOT EXISTS users (
@@ -556,6 +664,34 @@ app.prepare().then(async () => {
     } catch (error) {
       console.error('Disconnect error:', error);
       res.status(500).json({ error: 'Failed to disconnect' });
+    }
+  });
+
+  // Create new YouTube live broadcast + stream + bind (combined to minimize quota usage)
+  server.post('/api/youtube/create-stream', authenticateToken, async (req, res) => {
+    try {
+      const { title, description, scheduledStartTime, privacyStatus } = req.body;
+
+      if (!title) {
+        return res.status(400).json({ error: 'Title is required' });
+      }
+
+      const result = await createYouTubeStream(title, description, scheduledStartTime, privacyStatus);
+
+      res.json({
+        success: true,
+        broadcastId: result.broadcastId,
+        rtmpUrl: result.rtmpUrl,
+        streamKey: result.streamKey,
+        scheduledFor: result.scheduledFor,
+        title: result.title,
+      });
+    } catch (error) {
+      console.error('Create stream error:', error);
+      const message = error.message.includes('quota') ? 'YouTube API quota exceeded. Try again later.' :
+                     error.message.includes('permission') ? 'Insufficient YouTube permissions. Re-authenticate.' :
+                     error.message;
+      res.status(500).json({ error: message });
     }
   });
 
