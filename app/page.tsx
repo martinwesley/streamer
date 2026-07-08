@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+
+const fmtDate = (d: string | Date) => new Intl.DateTimeFormat('en-GB', {
+  day: '2-digit', month: 'short', year: 'numeric',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
+  timeZone: 'Asia/Kolkata'
+}).format(new Date(d)).replace(',', '');
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1050,7 +1056,7 @@ export default function Dashboard() {
                                               {broadcasts.find(b => b.id === broadcastId)?.title}
                                             </div>
                                             <div className="text-xs text-muted-foreground mt-1">
-                                              {broadcasts.find(b => b.id === broadcastId)?.scheduledStartTime ? new Date(broadcasts.find(b => b.id === broadcastId)!.scheduledStartTime).toLocaleString() : ""}
+                                              {broadcasts.find(b => b.id === broadcastId)?.scheduledStartTime ? fmtDate(broadcasts.find(b => b.id === broadcastId)!.scheduledStartTime) : ""}
                                             </div>
                                           </div>
                                         </div>
@@ -1075,7 +1081,7 @@ export default function Dashboard() {
                                           <div className="min-w-0 flex-1">
                                             <div className="font-medium text-white text-sm leading-tight line-clamp-3 pr-2">{b.title}</div>
                                             <div className="text-xs text-muted-foreground mt-1.5">
-                                              {b.scheduledStartTime ? new Date(b.scheduledStartTime).toLocaleString() : ""}
+                                              {b.scheduledStartTime ? fmtDate(b.scheduledStartTime) : ""}
                                             </div>
                                           </div>
                                         </div>
@@ -1150,7 +1156,7 @@ export default function Dashboard() {
                                       {s.status.toUpperCase()}
                                     </span>
                                   </TableCell>
-                                  <TableCell className="text-white/60 text-sm">{new Date(s.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
+                                  <TableCell className="text-white/60 text-sm">{fmtDate(s.created_at + 'Z')}</TableCell>
                                   <TableCell className="text-right">
                                     {s.status === 'streaming' ? (
                                       <Button variant="ghost" size="sm" onClick={() => handleAbortStream(s.id)} className="text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10">Abort</Button>
@@ -1335,8 +1341,8 @@ export default function Dashboard() {
                     {modalRecentBroadcasts.map((b: any) => (
                        <SelectItem key={b.id} value={b.id} className="py-2">
                          <div>
-                           {b._statusTag} • {b.title} {b.scheduledStartTime ? `(${new Date(b.scheduledStartTime).toLocaleString()})` : ''}
-                            <div className="text-[10px] text-white/40 mt-0.5">{b.streamKeyName || b.id}</div>
+                           {b._statusTag} • {b.title} {b.scheduledStartTime ? `(${fmtDate(b.scheduledStartTime)})` : ''}
+
                          </div>
                        </SelectItem>
                     ))}
