@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+
 import { Progress } from "@/components/ui/progress";
 import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Key, Calendar, LayoutDashboard, LogOut, RefreshCw } from "lucide-react";
 import axios from "axios";
