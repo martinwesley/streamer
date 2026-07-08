@@ -219,14 +219,14 @@ export default function Dashboard() {
     }
   };
 
-  const handleUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!file) return toast.error("Please select a file");
+  const handleUpload = async (selectedFile?: File) => {
+    const fileToUpload = selectedFile || file;
+    if (!fileToUpload) return toast.error("Please select a file");
     
     setUploading(true);
     setUploadProgress(0);
     const formData = new FormData();
-    formData.append("video", file);
+    formData.append("video", fileToUpload);
     
     try {
       const res = await axios.post("/api/videos/upload", formData, {
@@ -804,40 +804,41 @@ export default function Dashboard() {
                         <CardTitle className="text-white">Upload Video</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <form onSubmit={handleUpload} className="space-y-4">
-                          <div className="space-y-2">
-                            <Label className="text-white/80">Select File</Label>
-                            <div 
-                              className="flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-xl p-8 hover:bg-white/5 hover:border-primary/50 transition-all cursor-pointer bg-black/20" 
-                              onClick={() => document.getElementById('file-upload')?.click()}
-                            >
-                              <Folder className="w-12 h-12 text-white/40 mb-3" />
-                              <span className="text-sm text-white/70 text-center font-medium">
-                                {file ? file.name : "Click to select a video file"}
-                              </span>
-                              <Input 
-                                id="file-upload"
-                                type="file" 
-                                accept="video/*" 
-                                onChange={e => setFile(e.target.files?.[0] || null)} 
-                                className="hidden"
-                                required 
-                              />
-                            </div>
-                          </div>
-                          <Button type="submit" disabled={uploading || !file} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
-                            {uploading ? "Uploading..." : "Upload Video"}
-                          </Button>
-                          {uploading && (
-                            <div className="space-y-2 pt-2">
-                              <div className="flex justify-between text-xs text-white/70 font-medium">
-                                <span>Uploading...</span>
-                                <span>{uploadProgress}%</span>
-                              </div>
-                              <Progress value={uploadProgress} className="h-1.5 bg-white/10" />
-                            </div>
-                          )}
-                        </form>
+                         <div className="space-y-4">
+                           <div className="space-y-2">
+                             <Label className="text-white/80">Select File</Label>
+                             <div 
+                               className="flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-xl p-8 hover:bg-white/5 hover:border-primary/50 transition-all cursor-pointer bg-black/20" 
+                               onClick={() => document.getElementById('file-upload')?.click()}
+                             >
+                               <Folder className="w-12 h-12 text-white/40 mb-3" />
+                               <span className="text-sm text-white/70 text-center font-medium">
+                                 {file ? file.name : "Click to select a video file"}
+                               </span>
+                               <Input 
+                                 id="file-upload"
+                                 type="file" 
+                                 accept="video/*" 
+                                 onChange={e => {
+                                   const selected = e.target.files?.[0] || null;
+                                   setFile(selected);
+                                   if (selected) handleUpload(selected);
+                                 }} 
+                                 className="hidden"
+                                 disabled={uploading}
+                               />
+                             </div>
+                           </div>
+                           {uploading && (
+                             <div className="space-y-2 pt-2">
+                               <div className="flex justify-between text-xs text-white/70 font-medium">
+                                 <span>Uploading...</span>
+                                 <span>{uploadProgress}%</span>
+                               </div>
+                               <Progress value={uploadProgress} className="h-1.5 bg-white/10" />
+                             </div>
+                           )}
+                         </div>
                       </CardContent>
                     </Card>
 
