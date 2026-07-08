@@ -1313,14 +1313,14 @@ export default function Dashboard() {
 
       {/* Create YouTube Stream Modal */}
       <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
-        <DialogContent className="bg-background/95 backdrop-blur-sm border-white/10 max-w-2xl">
+        <DialogContent className="bg-background/95 backdrop-blur-sm border-white/10 w-[min(96vw,1800px)] max-w-none max-h-[90vh] flex flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle className="text-white">Create New YouTube Stream</DialogTitle>
             <DialogDescription className="text-white/60">
               Create a new live broadcast and stream directly on YouTube
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-4 overflow-y-auto flex-1 min-h-0 pr-1">
             <div className="space-y-2">
               <Label className="text-white/80">Copy details from recent broadcast (optional)</Label>
               <div className="flex gap-2">
