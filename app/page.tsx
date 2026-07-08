@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 
 const fmtDate = (d: string | Date) => new Intl.DateTimeFormat('en-GB', {
   day: '2-digit', month: 'short', year: 'numeric',
-  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
-  timeZone: 'Asia/Kolkata'
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
 }).format(new Date(d)).replace(',', '');
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -313,7 +312,8 @@ export default function Dashboard() {
   };
 
   const openCreateModal = () => {
-    const defaultTime = new Date(Date.now() + 30 * 60 * 1000).toISOString().slice(0, 16);
+    const dt = new Date(Date.now() + 30 * 60 * 1000);
+    const defaultTime = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}T${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
     setCreateScheduledTime(defaultTime);
     setCreateTitle("My Live Stream");
     setCreateDescription("");
@@ -344,7 +344,8 @@ export default function Dashboard() {
     setCreateDvr(!!cd.enableDvr);
     setCreateLatency((cd.latencyPreference as any) || "normal");
     // Always force future time, never copy past
-    const future = new Date(Date.now() + 30 * 60 * 1000).toISOString().slice(0, 16);
+    const dt2 = new Date(Date.now() + 30 * 60 * 1000);
+    const future = `${dt2.getFullYear()}-${String(dt2.getMonth()+1).padStart(2,'0')}-${String(dt2.getDate()).padStart(2,'0')}T${String(dt2.getHours()).padStart(2,'0')}:${String(dt2.getMinutes()).padStart(2,'0')}`;
     setCreateScheduledTime(future);
     setSelectedRecentForCopy(id);
   };
@@ -1132,7 +1133,7 @@ export default function Dashboard() {
                               <TableHead className="text-white/70">Video</TableHead>
                               <TableHead className="text-white/70">Scheduled For</TableHead>
                               <TableHead className="text-white/70">Status</TableHead>
-                              <TableHead className="text-white/70">Created At</TableHead>
+                               <TableHead className="text-white/70">Broadcast Title</TableHead>
                               <TableHead className="text-right text-white/70">Actions</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -1145,7 +1146,7 @@ export default function Dashboard() {
                               streams.map(s => (
                                 <TableRow key={s.id} className="border-white/10 hover:bg-white/5">
                                   <TableCell className="font-medium text-white">{s.video_name}</TableCell>
-                                  <TableCell className="text-white/80">{s.scheduled_for.replace('T', ' ')}</TableCell>
+                                   <TableCell className="text-white/80">{fmtDate(s.scheduled_for)}</TableCell>
                                   <TableCell>
                                     <span className={`px-2.5 py-1 rounded-md text-xs font-medium border
                                       ${s.status === 'pending' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' : ''}
@@ -1156,7 +1157,7 @@ export default function Dashboard() {
                                       {s.status.toUpperCase()}
                                     </span>
                                   </TableCell>
-                                  <TableCell className="text-white/60 text-sm">{fmtDate(s.created_at + 'Z')}</TableCell>
+                                   <TableCell className="text-white/60 text-sm">{s.video_name}</TableCell>
                                   <TableCell className="text-right">
                                     {s.status === 'streaming' ? (
                                       <Button variant="ghost" size="sm" onClick={() => handleAbortStream(s.id)} className="text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10">Abort</Button>
@@ -1209,7 +1210,7 @@ export default function Dashboard() {
                                      )}
                                    </TableCell>
                                    <TableCell className="text-white/80">{(v.size / (1024 * 1024)).toFixed(2)} MB</TableCell>
-                                   <TableCell className="text-white/60 text-sm">{new Date(v.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
+                                    <TableCell className="text-white/60 text-sm">{fmtDate(v.created_at)}</TableCell>
                                    <TableCell className="text-right">
                                      <Button variant="ghost" size="sm" onClick={() => handleDeleteVideo(v.id)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10">Delete</Button>
                                    </TableCell>
@@ -1298,7 +1299,7 @@ export default function Dashboard() {
                                 <TableRow key={k.id} className="border-white/10 hover:bg-white/5">
                                   <TableCell className="font-medium text-white">{k.name}</TableCell>
                                   <TableCell className="text-white/80 font-mono text-sm">{k.rtmp_url}</TableCell>
-                                  <TableCell className="text-white/60 text-sm">{new Date(k.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
+                                    <TableCell className="text-white/60 text-sm">{fmtDate(k.created_at)}</TableCell>
                                   <TableCell className="text-right">
                                     <Button variant="ghost" size="sm" onClick={() => handleDeleteKey(k.id)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10">Delete</Button>
                                   </TableCell>
