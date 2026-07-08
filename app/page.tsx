@@ -504,7 +504,8 @@ export default function Dashboard() {
           rtmp_url: rtmpUrl,
           stream_key: streamKey,
           scheduled_for: scheduledFor,
-          broadcast_id: broadcastId || null,
+           broadcast_id: broadcastId || null,
+           broadcast_title: broadcastId ? broadcasts.find(b => b.id === broadcastId)?.title || null : null,
         }),
       });
       if (res.ok) {
@@ -1157,7 +1158,7 @@ export default function Dashboard() {
                                       {s.status.toUpperCase()}
                                     </span>
                                   </TableCell>
-                                   <TableCell className="text-white/60 text-sm">{s.video_name}</TableCell>
+                                   <TableCell className="text-white/60 text-sm">{s.broadcast_title || s.video_name}</TableCell>
                                   <TableCell className="text-right">
                                     {s.status === 'streaming' ? (
                                       <Button variant="ghost" size="sm" onClick={() => handleAbortStream(s.id)} className="text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10">Abort</Button>

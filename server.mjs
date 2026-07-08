@@ -325,7 +325,8 @@ async function initDb() {
       rtmp_url TEXT,
       stream_key TEXT,
       scheduled_for DATETIME,
-      broadcast_id TEXT,
+       broadcast_id TEXT,
+       broadcast_title TEXT,
       status TEXT DEFAULT 'pending',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -1013,8 +1014,8 @@ async function getNetworkStats() {
 
     try {
       const result = await db.execute({
-        sql: 'INSERT INTO streams (user_id, video_id, rtmp_url, stream_key, scheduled_for, broadcast_id) VALUES (?, ?, ?, ?, ?, ?)',
-        args: [req.user.id, video_id, rtmp_url, stream_key, scheduled_for, broadcast_id || null]
+        sql: 'INSERT INTO streams (user_id, video_id, rtmp_url, stream_key, scheduled_for, broadcast_id, broadcast_title) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        args: [req.user.id, video_id, rtmp_url, stream_key, scheduled_for, broadcast_id || null, broadcast_title || null]
       });
       res.json({ success: true, streamId: Number(result.lastInsertRowid) });
     } catch (err) {
@@ -1025,7 +1026,7 @@ async function getNetworkStats() {
   server.get('/api/streams', authenticateToken, async (req, res) => {
     const result = await db.execute({
       sql: `
-        SELECT s.*, v.original_name as video_name 
+        SELECT s.*, v.original_name as video_name, s.broadcast_title 
         FROM streams s 
         JOIN videos v ON s.video_id = v.id 
         WHERE s.user_id = ? 
