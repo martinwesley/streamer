@@ -326,11 +326,11 @@ async function initDb() {
       stream_key TEXT,
       scheduled_for DATETIME,
        broadcast_id TEXT,
-       broadcast_title TEXT,
       status TEXT DEFAULT 'pending',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await db.execute(`ALTER TABLE streams ADD COLUMN broadcast_title TEXT`).catch(() => {});
   await db.execute(`
     CREATE TABLE IF NOT EXISTS saved_keys (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
