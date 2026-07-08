@@ -555,7 +555,7 @@ app.prepare().then(async () => {
   await initDb();
 
   const server = express();
-  server.use(express.json());
+  server.use(express.json({ limit: '50mb' }));
   
   // Parse cookies manually for simplicity
   server.use((req, res, next) => {
