@@ -295,7 +295,7 @@ export default function Dashboard() {
         setBroadcastId(data.broadcastId);
         setRtmpUrl(data.rtmpUrl);
         setStreamKey(data.streamKey);
-        setScheduledFor(data.scheduledFor.replace('Z', '').slice(0, 16));
+        setScheduledFor(String(data.scheduledFor).replace(' ', 'T').slice(0, 16));
 
         setShowCreateModal(false);
 
@@ -1416,7 +1416,7 @@ export default function Dashboard() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-white/80">Scheduled Start Time *</Label>
+              <Label className="text-white/80">Scheduled Start Time (IST) *</Label>
               <Input
                 type="datetime-local"
                 value={createScheduledTime}
@@ -1424,7 +1424,7 @@ export default function Dashboard() {
                 required
                 style={{ colorScheme: 'dark' }}
               />
-              <p className="text-xs text-white/40">Leave empty to start in ~30 minutes</p>
+              <p className="text-xs text-white/40">Times are Asia/Kolkata (IST). YouTube receives UTC (RFC 3339).</p>
             </div>
 
             <div className="space-y-2">

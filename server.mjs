@@ -223,6 +223,32 @@ async function fetchDefaultYouTubeStream(accessToken) {
   return items[0];
 }
 
+// YouTube liveBroadcasts.snippet.scheduledStartTime must be RFC 3339 UTC (e.g. 2026-07-13T14:00:00.000Z).
+// App UI/cron use Asia/Kolkata wall time; datetime-local values have no timezone, so treat them as IST.
+function toYouTubeScheduledStartTime(input) {
+  if (!input) return null;
+  const s = String(input).trim();
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)) {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) throw new Error('Invalid scheduledStartTime');
+    return d.toISOString();
+  }
+  const match = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2}))?/);
+  if (!match) {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) throw new Error('Invalid scheduledStartTime');
+    return d.toISOString();
+  }
+  const seconds = match[3] || '00';
+  const d = new Date(`${match[1]}T${match[2]}:${seconds}+05:30`);
+  if (Number.isNaN(d.getTime())) throw new Error('Invalid scheduledStartTime');
+  return d.toISOString();
+}
+
+function formatIstDatetimeLocal(date) {
+  return date.toLocaleString('sv-SE', { timeZone: 'Asia/Kolkata' }).replace(' ', 'T').slice(0, 16);
+}
+
 async function createYouTubeStream(title, description, scheduledStartTime, privacyStatus = 'private', thumbnailBase64 = null, settings = {}, reuseStreamId = null) {
   try {
     const accessToken = await getYouTubeAccessToken();
@@ -231,7 +257,12 @@ async function createYouTubeStream(title, description, scheduledStartTime, priva
     }
 
     const now = new Date();
-    const scheduledTime = scheduledStartTime || new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+    const scheduledTime = scheduledStartTime
+      ? toYouTubeScheduledStartTime(scheduledStartTime)
+      : new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+    const scheduledForIst = scheduledStartTime
+      ? String(scheduledStartTime).replace(' ', 'T').slice(0, 16)
+      : formatIstDatetimeLocal(new Date(now.getTime() + 30 * 60 * 1000));
 
     const {
       enableAutoStart = true,
@@ -365,7 +396,8 @@ async function createYouTubeStream(title, description, scheduledStartTime, priva
       broadcastId,
       rtmpUrl: finalRtmpUrl,
       streamKey: finalStreamKey,
-      scheduledFor: scheduledTime,
+      scheduledFor: scheduledForIst,
+      scheduledForUtc: scheduledTime,
       title: title || 'New Live Stream',
       thumbnailWarning,
       reusedStream: finalReusedStream,
@@ -840,6 +872,7 @@ app.prepare().then(async () => {
         rtmpUrl: result.rtmpUrl,
         streamKey: result.streamKey,
         scheduledFor: result.scheduledFor,
+        scheduledForUtc: result.scheduledForUtc,
         title: result.title,
         thumbnailWarning: result.thumbnailWarning || undefined,
         reusedStream: result.reusedStream || false,
