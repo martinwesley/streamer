@@ -1,5 +1,5 @@
 services:
-  streamscheduler1:
+  streamscheduler:
     build:
       context: .
       dockerfile: Dockerfile
