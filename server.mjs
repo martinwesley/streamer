@@ -141,6 +141,273 @@ async function endYouTubeBroadcast(broadcastId) {
   }
 }
 
+async function uploadYouTubeThumbnail(broadcastId, thumbnailBase64) {
+  const accessToken = await getYouTubeAccessToken();
+  if (!accessToken) throw new Error('No YouTube access token for thumbnail upload');
+
+  let mimeType = 'image/jpeg';
+  let base64Data = thumbnailBase64;
+  if (thumbnailBase64.startsWith('data:')) {
+    const m = thumbnailBase64.match(/^data:(image\/[^;]+);base64,(.*)$/);
+    if (m) {
+      mimeType = m[1];
+      base64Data = m[2];
+    } else {
+      base64Data = thumbnailBase64.split(',')[1] || thumbnailBase64;
+    }
+  }
+  const buffer = Buffer.from(base64Data, 'base64');
+  const uploadUrl = `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?uploadType=multipart&videoId=${broadcastId}`;
+  const form = new FormData();
+  form.append('image', new Blob([buffer], { type: mimeType }), 'thumbnail.jpg');
+  const thumbRes = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${accessToken}` },
+    body: form,
+  });
+  if (!thumbRes.ok) {
+    const err = await thumbRes.text();
+    throw new Error(`Thumbnail upload failed: ${err}`);
+  }
+}
+
+function mapLiveStreamItem(streamData) {
+  return {
+    streamId: streamData.id,
+    streamKey: streamData.cdn?.ingestionInfo?.streamName,
+    rtmpUrl: streamData.cdn?.ingestionInfo?.ingestionAddress || 'rtmp://a.rtmp.youtube.com/live2',
+    title: streamData.snippet?.title || '',
+    isReusable: streamData.contentDetails?.isReusable !== false,
+  };
+}
+
+async function fetchLiveStreamDetails(accessToken, streamId) {
+  const response = await fetch(
+    `https://www.googleapis.com/youtube/v3/liveStreams?part=snippet,cdn,contentDetails&id=${encodeURIComponent(streamId)}`,
+    { headers: { 'Authorization': `Bearer ${accessToken}` } }
+  );
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Failed to fetch stream details: ${err}`);
+  }
+  const data = await response.json();
+  const streamData = data.items?.[0];
+  if (!streamData) {
+    throw new Error('Stream not found');
+  }
+  return mapLiveStreamItem(streamData);
+}
+
+// YouTube channel default stream key (e.g. "Default stream key"), not stored in app
+async function fetchDefaultYouTubeStream(accessToken) {
+  const response = await fetch(
+    'https://www.googleapis.com/youtube/v3/liveStreams?part=snippet,cdn,contentDetails&mine=true&maxResults=50',
+    { headers: { 'Authorization': `Bearer ${accessToken}` } }
+  );
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Failed to fetch YouTube stream keys: ${err}`);
+  }
+  const data = await response.json();
+  const items = (data.items || []).map(mapLiveStreamItem).filter(s => s.streamId && s.streamKey);
+  if (items.length === 0) {
+    throw new Error('No YouTube stream keys found on this channel');
+  }
+
+  const byDefaultName = items.find(s => /default\s*stream\s*key/i.test(s.title));
+  if (byDefaultName) return byDefaultName;
+
+  const reusable = items.find(s => s.isReusable);
+  if (reusable) return reusable;
+
+  return items[0];
+}
+
+// YouTube liveBroadcasts.snippet.scheduledStartTime must be RFC 3339 UTC (e.g. 2026-07-13T14:00:00.000Z).
+// App UI/cron use Asia/Kolkata wall time; datetime-local values have no timezone, so treat them as IST.
+function toYouTubeScheduledStartTime(input) {
+  if (!input) return null;
+  const s = String(input).trim();
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)) {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) throw new Error('Invalid scheduledStartTime');
+    return d.toISOString();
+  }
+  const match = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2}))?/);
+  if (!match) {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) throw new Error('Invalid scheduledStartTime');
+    return d.toISOString();
+  }
+  const seconds = match[3] || '00';
+  const d = new Date(`${match[1]}T${match[2]}:${seconds}+05:30`);
+  if (Number.isNaN(d.getTime())) throw new Error('Invalid scheduledStartTime');
+  return d.toISOString();
+}
+
+function formatIstDatetimeLocal(date) {
+  return date.toLocaleString('sv-SE', { timeZone: 'Asia/Kolkata' }).replace(' ', 'T').slice(0, 16);
+}
+
+async function createYouTubeStream(title, description, scheduledStartTime, privacyStatus = 'private', thumbnailBase64 = null, settings = {}, reuseStreamId = null) {
+  try {
+    const accessToken = await getYouTubeAccessToken();
+    if (!accessToken) {
+      throw new Error('YouTube not authenticated');
+    }
+
+    const now = new Date();
+    const scheduledTime = scheduledStartTime
+      ? toYouTubeScheduledStartTime(scheduledStartTime)
+      : new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+    const scheduledForIst = scheduledStartTime
+      ? String(scheduledStartTime).replace(' ', 'T').slice(0, 16)
+      : formatIstDatetimeLocal(new Date(now.getTime() + 30 * 60 * 1000));
+
+    const {
+      enableAutoStart = true,
+      enableAutoStop = false,
+      enableDvr = false,
+      latencyPreference = 'normal',
+    } = settings;
+
+    // Resolve stream key first: copied broadcast stream, else channel default from YouTube
+    let streamDetails;
+    let reusedStream = false;
+
+    if (reuseStreamId) {
+      try {
+        streamDetails = await fetchLiveStreamDetails(accessToken, reuseStreamId);
+        reusedStream = true;
+      } catch (e) {
+        console.warn('Could not reuse copied stream, falling back to YouTube default stream key:', e.message);
+      }
+    }
+
+    if (!streamDetails) {
+      streamDetails = await fetchDefaultYouTubeStream(accessToken);
+    }
+
+    const { streamId, streamKey, rtmpUrl } = streamDetails;
+
+    // 1. Create liveBroadcast (with contentDetails for auto-start/stop, dvr, latency)
+    const broadcastResponse = await fetch('https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status,contentDetails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        snippet: {
+          title: title || 'New Live Stream',
+          description: description || '',
+          scheduledStartTime: scheduledTime,
+        },
+        status: {
+          privacyStatus: privacyStatus,
+          selfDeclaredMadeForKids: false,
+        },
+        contentDetails: {
+          enableAutoStart,
+          enableAutoStop,
+          enableDvr,
+          latencyPreference,
+        },
+      }),
+    });
+
+    if (!broadcastResponse.ok) {
+      const err = await broadcastResponse.text();
+      throw new Error(`Failed to create broadcast: ${err}`);
+    }
+
+    const broadcastData = await broadcastResponse.json();
+    const broadcastId = broadcastData.id;
+
+    const cleanupBroadcast = async () => {
+      await fetch(`https://www.googleapis.com/youtube/v3/liveBroadcasts?id=${broadcastId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+      }).catch(() => {});
+    };
+
+    // 2. Bind broadcast to existing stream (copied or default) — never create a new stream key
+    const bindResponse = await fetch(`https://www.googleapis.com/youtube/v3/liveBroadcasts/bind?id=${broadcastId}&streamId=${streamId}&part=id,snippet,status`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    let finalStreamId = streamId;
+    let finalStreamKey = streamKey;
+    let finalRtmpUrl = rtmpUrl;
+    let finalReusedStream = reusedStream;
+
+    if (!bindResponse.ok) {
+      const err = await bindResponse.text();
+      // If copied stream failed to bind, retry with channel default stream key
+      if (reusedStream) {
+        console.warn('Bind to copied stream failed, retrying with YouTube default stream key:', err);
+        try {
+          const defaultStream = await fetchDefaultYouTubeStream(accessToken);
+          if (defaultStream.streamId === streamId) {
+            await cleanupBroadcast();
+            throw new Error(`Failed to bind stream: ${err}`);
+          }
+          const retryBind = await fetch(`https://www.googleapis.com/youtube/v3/liveBroadcasts/bind?id=${broadcastId}&streamId=${defaultStream.streamId}&part=id,snippet,status`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          });
+          if (!retryBind.ok) {
+            const retryErr = await retryBind.text();
+            await cleanupBroadcast();
+            throw new Error(`Failed to bind stream: ${retryErr}`);
+          }
+          finalStreamId = defaultStream.streamId;
+          finalStreamKey = defaultStream.streamKey;
+          finalRtmpUrl = defaultStream.rtmpUrl;
+          finalReusedStream = false;
+        } catch (fallbackErr) {
+          await cleanupBroadcast();
+          throw fallbackErr;
+        }
+      } else {
+        await cleanupBroadcast();
+        throw new Error(`Failed to bind stream: ${err}`);
+      }
+    }
+
+    // 3. Thumbnail (optional, non-fatal)
+    let thumbnailWarning = null;
+    if (thumbnailBase64) {
+      try {
+        await uploadYouTubeThumbnail(broadcastId, thumbnailBase64);
+      } catch (e) {
+        thumbnailWarning = e.message;
+      }
+    }
+
+    return {
+      broadcastId,
+      rtmpUrl: finalRtmpUrl,
+      streamKey: finalStreamKey,
+      scheduledFor: scheduledForIst,
+      scheduledForUtc: scheduledTime,
+      title: title || 'New Live Stream',
+      thumbnailWarning,
+      reusedStream: finalReusedStream,
+    };
+  } catch (error) {
+    console.error('YouTube stream creation error:', error);
+    throw error;
+  }
+}
+
 async function initDb() {
   await db.execute(`
     CREATE TABLE IF NOT EXISTS users (
@@ -168,11 +435,12 @@ async function initDb() {
       rtmp_url TEXT,
       stream_key TEXT,
       scheduled_for DATETIME,
-      broadcast_id TEXT,
+       broadcast_id TEXT,
       status TEXT DEFAULT 'pending',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await db.execute(`ALTER TABLE streams ADD COLUMN broadcast_title TEXT`).catch(() => {});
   await db.execute(`
     CREATE TABLE IF NOT EXISTS saved_keys (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -398,7 +666,7 @@ app.prepare().then(async () => {
   await initDb();
 
   const server = express();
-  server.use(express.json());
+  server.use(express.json({ limit: '50mb' }));
   
   // Parse cookies manually for simplicity
   server.use((req, res, next) => {
@@ -524,20 +792,35 @@ app.prepare().then(async () => {
       const accessToken = await getYouTubeAccessToken();
       if (!accessToken) return res.status(401).json({ error: 'YouTube not authenticated' });
 
-      const response = await fetch('https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status&broadcastStatus=upcoming&maxResults=50', {
+      const broadcastStatus = req.query.broadcastStatus || 'upcoming';
+      const maxResults = req.query.maxResults || '50';
+      const url = `https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status,contentDetails&broadcastStatus=${encodeURIComponent(broadcastStatus)}&maxResults=${encodeURIComponent(maxResults)}`;
+
+      const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${accessToken}` },
       });
 
       if (!response.ok) throw new Error('Failed to fetch broadcasts');
 
       const data = await response.json();
-      const broadcasts = data.items.map(item => ({
+      const broadcasts = (data.items || []).map(item => ({
         id: item.id,
         title: item.snippet.title,
         description: item.snippet.description,
-        thumbnail: item.snippet.thumbnails.default?.url,
+        thumbnail: item.snippet.thumbnails?.high?.url 
+           || item.snippet.thumbnails?.medium?.url 
+           || item.snippet.thumbnails?.default?.url,
         scheduledStartTime: item.snippet.scheduledStartTime,
         status: item.status.lifeCycleStatus,
+        privacyStatus: item.status?.privacyStatus,
+        boundStreamId: item.contentDetails?.boundStreamId || null,
+        contentDetails: {
+          enableAutoStart: item.contentDetails?.enableAutoStart,
+          enableAutoStop: item.contentDetails?.enableAutoStop,
+          enableDvr: item.contentDetails?.enableDvr,
+          latencyPreference: item.contentDetails?.latencyPreference,
+          boundStreamId: item.contentDetails?.boundStreamId || null,
+        },
       }));
 
       res.json({ broadcasts });
@@ -554,6 +837,52 @@ app.prepare().then(async () => {
     } catch (error) {
       console.error('Disconnect error:', error);
       res.status(500).json({ error: 'Failed to disconnect' });
+    }
+  });
+
+  // Create new YouTube live broadcast + stream + bind (combined to minimize quota usage)
+  server.post('/api/youtube/create-stream', authenticateToken, async (req, res) => {
+    try {
+      const { title, description, scheduledStartTime, privacyStatus, thumbnail, enableAutoStart, enableAutoStop, enableDvr, latencyPreference, reuseStreamId } = req.body;
+
+      if (!title) {
+        return res.status(400).json({ error: 'Title is required' });
+      }
+
+      const settings = {
+        enableAutoStart: enableAutoStart !== undefined ? enableAutoStart : true,
+        enableAutoStop: enableAutoStop !== undefined ? enableAutoStop : false,
+        enableDvr: enableDvr !== undefined ? enableDvr : false,
+        latencyPreference: latencyPreference || 'normal',
+      };
+
+      const result = await createYouTubeStream(
+        title,
+        description,
+        scheduledStartTime,
+        privacyStatus,
+        thumbnail || null,
+        settings,
+        reuseStreamId || null
+      );
+
+      res.json({
+        success: true,
+        broadcastId: result.broadcastId,
+        rtmpUrl: result.rtmpUrl,
+        streamKey: result.streamKey,
+        scheduledFor: result.scheduledFor,
+        scheduledForUtc: result.scheduledForUtc,
+        title: result.title,
+        thumbnailWarning: result.thumbnailWarning || undefined,
+        reusedStream: result.reusedStream || false,
+      });
+    } catch (error) {
+      console.error('Create stream error:', error);
+      const message = error.message.includes('quota') ? 'YouTube API quota exceeded. Try again later.' :
+                     error.message.includes('permission') ? 'Insufficient YouTube permissions. Re-authenticate.' :
+                     error.message;
+      res.status(500).json({ error: message });
     }
   });
 
@@ -799,7 +1128,7 @@ async function getNetworkStats() {
   });
 
   server.post('/api/streams', authenticateToken, async (req, res) => {
-    let { video_id, rtmp_url, stream_key, scheduled_for, broadcast_id } = req.body;
+    let { video_id, rtmp_url, stream_key, scheduled_for, broadcast_id, broadcast_title } = req.body;
     
     if (!video_id || !rtmp_url || !stream_key || !scheduled_for) {
       return res.status(400).json({ error: 'Missing fields' });
@@ -807,8 +1136,8 @@ async function getNetworkStats() {
 
     try {
       const result = await db.execute({
-        sql: 'INSERT INTO streams (user_id, video_id, rtmp_url, stream_key, scheduled_for, broadcast_id) VALUES (?, ?, ?, ?, ?, ?)',
-        args: [req.user.id, video_id, rtmp_url, stream_key, scheduled_for, broadcast_id || null]
+        sql: 'INSERT INTO streams (user_id, video_id, rtmp_url, stream_key, scheduled_for, broadcast_id, broadcast_title) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        args: [req.user.id, video_id, rtmp_url, stream_key, scheduled_for, broadcast_id || null, broadcast_title || null]
       });
       res.json({ success: true, streamId: Number(result.lastInsertRowid) });
     } catch (err) {
@@ -819,7 +1148,7 @@ async function getNetworkStats() {
   server.get('/api/streams', authenticateToken, async (req, res) => {
     const result = await db.execute({
       sql: `
-        SELECT s.*, v.original_name as video_name 
+        SELECT s.*, v.original_name as video_name, s.broadcast_title 
         FROM streams s 
         JOIN videos v ON s.video_id = v.id 
         WHERE s.user_id = ? 

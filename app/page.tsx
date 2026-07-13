@@ -1,21 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+const fmtDate = (d: string | Date) => new Intl.DateTimeFormat('en-GB', {
+  day: '2-digit', month: 'short', year: 'numeric',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
+}).format(new Date(d)).replace(',', '').replace(/am|pm/i, m => m.toUpperCase());
 import { useRouter } from "next/navigation";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+
 import { Progress } from "@/components/ui/progress";
-import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Video, Key, Calendar, LayoutDashboard, LogOut, RefreshCw } from "lucide-react";
+import { Folder, Activity, HardDrive, Cpu, Network, Menu, X, Key, Calendar, LayoutDashboard, LogOut, RefreshCw, Plus } from "lucide-react";
 import axios from "axios";
 import { motion, AnimatePresence } from "motion/react";
-import Link from "next/link";
+
 import Image from "next/image";
 
 export default function Dashboard() {
@@ -50,12 +56,47 @@ export default function Dashboard() {
   const [broadcasts, setBroadcasts] = useState<any[]>([]);
   const [youtubeAuthenticated, setYoutubeAuthenticated] = useState(false);
 
+  // Create stream modal state
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createTitle, setCreateTitle] = useState("");
+  const [createDescription, setCreateDescription] = useState("");
+  const [createScheduledTime, setCreateScheduledTime] = useState("");
+  const [creatingStream, setCreatingStream] = useState(false);
+  const [createThumbnail, setCreateThumbnail] = useState<string | null>(null);
+  const [createThumbnailPreview, setCreateThumbnailPreview] = useState<string>("");
+  const [createPrivacy, setCreatePrivacy] = useState<"private" | "unlisted" | "public">("private");
+  const [createAutoStart, setCreateAutoStart] = useState(true);
+  const [createAutoStop, setCreateAutoStop] = useState(false);
+  const [createDvr, setCreateDvr] = useState(false);
+  const [createLatency, setCreateLatency] = useState<"normal" | "low" | "ultraLow">("normal");
+  const [modalRecentBroadcasts, setModalRecentBroadcasts] = useState<any[]>([]);
+  const [selectedRecentForCopy, setSelectedRecentForCopy] = useState("");
+
+
+
   // Saved Keys state
   const [savedKeys, setSavedKeys] = useState<any[]>([]);
   const [newKeyName, setNewKeyName] = useState("");
   const [newKeyRtmp, setNewKeyRtmp] = useState("rtmp://a.rtmp.youtube.com/live2");
   const [newKeyStream, setNewKeyStream] = useState("");
   const [savingKey, setSavingKey] = useState(false);
+
+  const streamsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = () => {
+    if (streamsIntervalRef.current) {
+      clearInterval(streamsIntervalRef.current);
+      streamsIntervalRef.current = null;
+    }
+  };
+
+  const startPolling = () => {
+    stopPolling();
+    streamsIntervalRef.current = setInterval(() => {
+      fetchStreams();
+      fetchVideos();
+    }, 2000);
+  };
 
   useEffect(() => {
     fetchUser();
@@ -68,14 +109,9 @@ export default function Dashboard() {
       // Clean up URL
       window.history.replaceState({}, document.title, window.location.pathname);
     }
-    
-    const streamsInterval = setInterval(() => {
-      fetchStreams();
-      fetchVideos();
-    }, 2000);
 
     return () => {
-      clearInterval(streamsInterval);
+      stopPolling();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -158,6 +194,39 @@ export default function Dashboard() {
     }
   };
 
+  const loadModalRecentBroadcasts = async () => {
+    if (!youtubeAuthenticated) {
+      setModalRecentBroadcasts([]);
+      return;
+    }
+    try {
+      const [upcomingRes, liveRes, completedRes] = await Promise.all([
+        fetch("/api/youtube/broadcasts?broadcastStatus=upcoming&maxResults=10"),
+        fetch("/api/youtube/broadcasts?broadcastStatus=active&maxResults=10"),
+        fetch("/api/youtube/broadcasts?broadcastStatus=completed&maxResults=10"),
+      ]);
+      const [upcoming, live, completed] = await Promise.all([
+        upcomingRes.ok ? upcomingRes.json() : { broadcasts: [] },
+        liveRes.ok ? liveRes.json() : { broadcasts: [] },
+        completedRes.ok ? completedRes.json() : { broadcasts: [] },
+      ]);
+      const all = [
+        ...(upcoming.broadcasts || []).map((b: any) => ({ ...b, _statusTag: 'UPCOMING' })),
+        ...(live.broadcasts || []).map((b: any) => ({ ...b, _statusTag: 'LIVE' })),
+        ...(completed.broadcasts || []).map((b: any) => ({ ...b, _statusTag: 'RECENT' })),
+      ];
+      const seen = new Set<string>();
+      const deduped = all.filter((b: any) => {
+        if (seen.has(b.id)) return false;
+        seen.add(b.id);
+        return true;
+      });
+      setModalRecentBroadcasts(deduped);
+    } catch {
+      setModalRecentBroadcasts([]);
+    }
+  };
+
   const handleYouTubeAuth = () => {
     window.location.href = "/api/youtube/auth";
   };
@@ -178,11 +247,152 @@ export default function Dashboard() {
     }
   };
 
+  const handleCreateStream = async () => {
+    if (!createTitle) {
+      return toast.error("Title is required");
+    }
+    if (createTitle.length > 100) {
+      return toast.error("Title must be 100 characters or less");
+    }
+
+    setCreatingStream(true);
+    try {
+      const selectedRecent = selectedRecentForCopy
+        ? modalRecentBroadcasts.find((b: any) => b.id === selectedRecentForCopy)
+        : null;
+      const reuseStreamId =
+        selectedRecent?.boundStreamId ||
+        selectedRecent?.contentDetails?.boundStreamId ||
+        undefined;
+
+      const res = await fetch("/api/youtube/create-stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: createTitle,
+          description: createDescription,
+          scheduledStartTime: createScheduledTime || undefined,
+          privacyStatus: createPrivacy,
+          thumbnail: createThumbnail || undefined,
+          enableAutoStart: createAutoStart,
+          enableAutoStop: createAutoStop,
+          enableDvr: createDvr,
+          latencyPreference: createLatency,
+          reuseStreamId,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        toast.success(
+          data.reusedStream
+            ? "YouTube stream created with copied stream key"
+            : "YouTube stream created with default stream key"
+        );
+
+        // Auto-populate schedule form
+        setBroadcastId(data.broadcastId);
+        setRtmpUrl(data.rtmpUrl);
+        setStreamKey(data.streamKey);
+        setScheduledFor(String(data.scheduledFor).replace(' ', 'T').slice(0, 16));
+
+        setShowCreateModal(false);
+
+        // Reset modal form
+        setCreateTitle("");
+        setCreateDescription("");
+        setCreateScheduledTime("");
+        setCreateThumbnail(null);
+        setCreateThumbnailPreview("");
+        setCreatePrivacy("private");
+        setCreateAutoStart(true);
+        setCreateAutoStop(false);
+        setCreateDvr(false);
+        setCreateLatency("normal");
+        setSelectedRecentForCopy("");
+        setModalRecentBroadcasts([]);
+
+        if (data.thumbnailWarning) {
+          toast.warning(data.thumbnailWarning);
+        }
+
+        // Optimistic insert + refresh
+        const newBroadcast = {
+          id: data.broadcastId,
+          title: data.title,
+          thumbnail: createThumbnailPreview || undefined,
+          scheduledStartTime: data.scheduledFor,
+        };
+        setBroadcasts(prev => [newBroadcast, ...prev.filter(b => b.id !== data.broadcastId)]);
+        fetchBroadcasts();
+      } else {
+        toast.error(data.error || "Failed to create stream");
+      }
+    } catch (error) {
+      toast.error("An error occurred while creating the stream");
+    } finally {
+      setCreatingStream(false);
+    }
+  };
+
+  const openCreateModal = () => {
+    const dt = new Date(Date.now() + 30 * 60 * 1000);
+    const defaultTime = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}T${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+    setCreateScheduledTime(defaultTime);
+    setCreateTitle("My Live Stream");
+    setCreateDescription("");
+    setCreateThumbnail(null);
+    setCreateThumbnailPreview("");
+    setCreatePrivacy("private");
+    setCreateAutoStart(true);
+    setCreateAutoStop(false);
+    setCreateDvr(false);
+    setCreateLatency("normal");
+    setSelectedRecentForCopy("");
+    setModalRecentBroadcasts([]);
+    setShowCreateModal(true);
+    if (youtubeAuthenticated) {
+      loadModalRecentBroadcasts();
+    }
+  };
+
+  const handleSelectRecent = (id: string) => {
+    const found = modalRecentBroadcasts.find((b: any) => b.id === id);
+    if (!found) return;
+    setCreateTitle(found.title || "My Live Stream");
+    setCreateDescription(found.description || "");
+    setCreatePrivacy((found.privacyStatus as any) || "private");
+    const cd = found.contentDetails || {};
+    setCreateAutoStart(cd.enableAutoStart !== false);
+    setCreateAutoStop(!!cd.enableAutoStop);
+    setCreateDvr(!!cd.enableDvr);
+    setCreateLatency((cd.latencyPreference as any) || "normal");
+    // Always force future time, never copy past
+    const dt2 = new Date(Date.now() + 30 * 60 * 1000);
+    const future = `${dt2.getFullYear()}-${String(dt2.getMonth()+1).padStart(2,'0')}-${String(dt2.getDate()).padStart(2,'0')}T${String(dt2.getHours()).padStart(2,'0')}:${String(dt2.getMinutes()).padStart(2,'0')}`;
+    setCreateScheduledTime(future);
+    setSelectedRecentForCopy(id);
+  };
+
+  const clearRecentSelection = () => {
+    setSelectedRecentForCopy("");
+    // Re-apply defaults
+    setCreateTitle("My Live Stream");
+    setCreateDescription("");
+    setCreatePrivacy("private");
+    setCreateAutoStart(true);
+    setCreateAutoStop(false);
+    setCreateDvr(false);
+    setCreateLatency("normal");
+  };
+
   const handleSaveKey = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newKeyName || !newKeyRtmp || !newKeyStream) return toast.error("Please fill all fields");
     
     setSavingKey(true);
+    startPolling();
     try {
       const res = await fetch("/api/saved-keys", {
         method: "POST",
@@ -194,6 +404,8 @@ export default function Dashboard() {
         setNewKeyName("");
         setNewKeyStream("");
         fetchSavedKeys();
+        fetchStreams();
+        fetchVideos();
       } else {
         toast.error("Failed to save key");
       }
@@ -201,6 +413,7 @@ export default function Dashboard() {
       toast.error("Error saving key");
     } finally {
       setSavingKey(false);
+      stopPolling();
     }
   };
 
@@ -219,14 +432,15 @@ export default function Dashboard() {
     }
   };
 
-  const handleUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!file) return toast.error("Please select a file");
+  const handleUpload = async (selectedFile?: File) => {
+    const fileToUpload = selectedFile || file;
+    if (!fileToUpload) return toast.error("Please select a file");
     
     setUploading(true);
     setUploadProgress(0);
+    startPolling();
     const formData = new FormData();
-    formData.append("video", file);
+    formData.append("video", fileToUpload);
     
     try {
       const res = await axios.post("/api/videos/upload", formData, {
@@ -241,6 +455,7 @@ export default function Dashboard() {
         toast.success("Video uploaded successfully");
         setFile(null);
         fetchVideos();
+        fetchStreams();
       } else {
         toast.error("Upload failed");
       }
@@ -249,6 +464,7 @@ export default function Dashboard() {
     } finally {
       setUploading(false);
       setUploadProgress(0);
+      stopPolling();
     }
   };
 
@@ -311,6 +527,7 @@ export default function Dashboard() {
     }
     
     setScheduling(true);
+    startPolling();
     try {
       const res = await fetch("/api/streams", {
         method: "POST",
@@ -320,7 +537,8 @@ export default function Dashboard() {
           rtmp_url: rtmpUrl,
           stream_key: streamKey,
           scheduled_for: scheduledFor,
-          broadcast_id: broadcastId || null,
+           broadcast_id: broadcastId || null,
+           broadcast_title: broadcastId ? broadcasts.find(b => b.id === broadcastId)?.title || null : null,
         }),
       });
       if (res.ok) {
@@ -331,6 +549,7 @@ export default function Dashboard() {
         setSelectedSavedKey("");
         setBroadcastId("");
         fetchStreams();
+        fetchVideos();
       } else {
         toast.error("Scheduling failed");
       }
@@ -338,6 +557,7 @@ export default function Dashboard() {
       toast.error("An error occurred while scheduling");
     } finally {
       setScheduling(false);
+      stopPolling();
     }
   };
 
@@ -402,9 +622,8 @@ export default function Dashboard() {
         <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4 px-2">Menu</div>
         <nav className="space-y-1">
           {[
-            { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-            { id: "streams", label: "Streams", icon: Calendar },
-            { id: "videos", label: "Videos", icon: Video },
+            { id: "dashboard", label: "Overview", icon: LayoutDashboard },
+            { id: "schedule", label: "Schedule", icon: Calendar },
             { id: "keys", label: "Stream Keys", icon: Key },
           ].map((item) => (
             <button
@@ -604,24 +823,178 @@ export default function Dashboard() {
                             </div>
                           ))}
                         </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </div>
-              )}
+                       </CardContent>
+                     </Card>
+                   </div>
 
-              {activeTab === "streams" && (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-3xl font-bold tracking-tight text-white">Streams</h2>
-                  </div>
-                  
-                  <Card className="glass border-white/5">
-                    <CardHeader>
-                      <CardTitle className="text-white">Schedule New Stream</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <form onSubmit={handleSchedule} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     <Card className="glass border-white/5">
+                       <CardHeader>
+                         <CardTitle className="text-lg text-white">Recent Videos</CardTitle>
+                       </CardHeader>
+                       <CardContent>
+                         <div className="space-y-2">
+                           {videos.length === 0 ? (
+                             <div className="text-center py-4 text-muted-foreground text-sm">No videos yet</div>
+                           ) : (
+                             videos.slice(0, 3).map((v: any) => (
+                               <div key={v.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5">
+                                 <div className="min-w-0">
+                                   <div className="font-medium text-white truncate">{v.original_name}</div>
+                                   <div className="text-xs text-muted-foreground">{(v.size / (1024 * 1024)).toFixed(1)} MB</div>
+                                 </div>
+                                 {v.encoding_status === 'encoding' && (
+                                   <span className="text-xs px-2 py-0.5 rounded bg-yellow-500/10 text-yellow-400">ENC {v.encoding_progress}%</span>
+                                 )}
+                               </div>
+                             ))
+                           )}
+                         </div>
+                         <Button variant="ghost" size="sm" className="mt-3" onClick={() => setActiveTab("schedule")}>
+                           Manage →
+                         </Button>
+                       </CardContent>
+                     </Card>
+
+                     <Card className="glass border-white/5">
+                       <CardHeader>
+                         <CardTitle className="text-lg text-white">Upcoming Streams</CardTitle>
+                       </CardHeader>
+                       <CardContent>
+                         <div className="space-y-2">
+                           {streams.filter((s: any) => s.status === 'pending' || s.status === 'scheduled').length === 0 ? (
+                             <div className="text-center py-4 text-muted-foreground text-sm">No upcoming streams</div>
+                           ) : (
+                             streams
+                               .filter((s: any) => s.status === 'pending' || s.status === 'scheduled')
+                               .slice(0, 3)
+                               .map((s: any) => (
+                                 <div key={s.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5">
+                                   <div className="min-w-0">
+                                     <div className="font-medium text-white truncate">{s.video_name}</div>
+                                     <div className="text-xs text-muted-foreground">{s.scheduled_for.replace('T', ' ')}</div>
+                                   </div>
+                                   <span className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary">PENDING</span>
+                                 </div>
+                               ))
+                           )}
+                         </div>
+                         <Button variant="ghost" size="sm" className="mt-3" onClick={() => setActiveTab("schedule")}>
+                           Manage →
+                         </Button>
+                       </CardContent>
+                     </Card>
+                   </div>
+                 </div>
+               )}
+
+                {activeTab === "schedule" && (
+                 <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-3xl font-bold tracking-tight text-white">Schedule</h2>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <Card className="glass border-white/5">
+                        <CardHeader>
+                          <CardTitle className="text-white">Upload Video</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                           <div className="space-y-4">
+                             <div className="space-y-2">
+                               <Label className="text-white/80">Select File</Label>
+                               <div 
+                                 className="flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-xl p-8 hover:bg-white/5 hover:border-primary/50 transition-all cursor-pointer bg-black/20" 
+                                 onClick={() => document.getElementById('file-upload')?.click()}
+                               >
+                                 <Folder className="w-12 h-12 text-white/40 mb-3" />
+                                 <span className="text-sm text-white/70 text-center font-medium">
+                                   {file ? file.name : "Click to select a video file"}
+                                 </span>
+                                 <Input 
+                                   id="file-upload"
+                                   type="file" 
+                                   accept="video/*" 
+                                   onChange={e => {
+                                     const selected = e.target.files?.[0] || null;
+                                     setFile(selected);
+                                     if (selected) handleUpload(selected);
+                                   }} 
+                                   className="hidden"
+                                   disabled={uploading}
+                                 />
+                               </div>
+                             </div>
+                             {uploading && (
+                               <div className="space-y-2 pt-2">
+                                 <div className="flex justify-between text-xs text-white/70 font-medium">
+                                   <span>Uploading...</span>
+                                   <span>{uploadProgress}%</span>
+                                 </div>
+                                 <Progress value={uploadProgress} className="h-1.5 bg-white/10" />
+                               </div>
+                             )}
+                           </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card className="glass border-white/5">
+                        <CardHeader>
+                          <CardTitle className="text-white">Import from URL</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <form onSubmit={handleImport} className="space-y-4">
+                            <div className="space-y-2">
+                              <Label className="text-white/80">Direct Download URL</Label>
+                              <Input 
+                                type="url" 
+                                value={importUrl} 
+                                onChange={e => setImportUrl(e.target.value)} 
+                                placeholder="https://..." 
+                                required 
+                              />
+                              <p className="text-xs text-white/50">
+                                For Google Drive, use a direct download link format.
+                              </p>
+                            </div>
+                            <Button type="submit" disabled={importing || !importUrl} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
+                              {importing ? "Importing..." : "Import Video"}
+                            </Button>
+                            {importing && (
+                              <div className="space-y-2 pt-2">
+                                <div className="flex justify-between text-xs text-white/70 font-medium">
+                                  <span>Importing...</span>
+                                  <span>{importProgress}%</span>
+                                </div>
+                                <Progress value={importProgress} className="h-1.5 bg-white/10" />
+                              </div>
+                            )}
+                          </form>
+                        </CardContent>
+                      </Card>
+
+                      <Card className="glass border-white/5">
+                        <CardHeader>
+                          <CardTitle className="text-white">Create YouTube Stream</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-3">
+                            <p className="text-sm text-white/70">Create a new live broadcast + stream key directly on YouTube without leaving the app.</p>
+                            <Button onClick={openCreateModal} className="w-full" variant="outline">
+                              <Plus className="h-4 w-4 mr-2" /> Create New Stream
+                            </Button>
+                            <p className="text-xs text-white/40">After creation, the schedule form will be auto-filled.</p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                   
+                   <Card className="glass border-white/5">
+                     <CardHeader>
+                       <CardTitle className="text-white">Schedule New Stream</CardTitle>
+                     </CardHeader>
+                     <CardContent>
+                       <form onSubmit={handleSchedule} className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2 md:col-span-2">
                           <Label className="text-white/80">Use Saved Stream Key (Optional)</Label>
                           <Select value={selectedSavedKey || undefined} onValueChange={(val) => {
@@ -646,9 +1019,10 @@ export default function Dashboard() {
                             </SelectContent>
                           </Select>
                         </div>
-                        <div className="space-y-2">
-                          <Label className="text-white/80">Select Video</Label>
-                          <Select value={selectedVideo || undefined} onValueChange={(val) => setSelectedVideo(val || "")}>
+                         <div className="space-y-2">
+                           <Label className="text-white/80">Select Video</Label>
+                           <p className="text-xs text-white/50 -mt-1">or upload more using the cards above</p>
+                           <Select value={selectedVideo || undefined} onValueChange={(val) => setSelectedVideo(val || "")}>
                             <SelectTrigger className="bg-black/50 border-white/10 text-white">
                               <SelectValue placeholder="Select a video">
                                 {selectedVideo ? (videos.find(v => v.id.toString() === selectedVideo)?.original_name || "Unknown Video") : "Select a video"}
@@ -683,7 +1057,7 @@ export default function Dashboard() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label className="text-white/80">Schedule Time</Label>
+                          <Label className="text-white/80">Scheduled Start Time *</Label>
                           <Input 
                             type="datetime-local" 
                             value={scheduledFor} 
@@ -692,42 +1066,86 @@ export default function Dashboard() {
                             style={{ colorScheme: 'dark' }}
                           />
                         </div>
-                        <div className="space-y-2 md:col-span-2">
-                          <Label className="text-white/80">YouTube Broadcast (Optional)</Label>
-                          {!youtubeAuthenticated ? (
-                            <Button onClick={handleYouTubeAuth} variant="outline" className="w-full">
-                              Connect YouTube Account
-                            </Button>
-                          ) : (
-                            <div className="flex items-center space-x-2">
-                              <Select value={broadcastId || undefined} onValueChange={(val) => setBroadcastId(val || "")}>
-                                <SelectTrigger className="bg-black/50 border-white/10 text-white flex-1">
-                                  <SelectValue placeholder="Select a broadcast">
-                                    {broadcastId ? (broadcasts.find(b => b.id === broadcastId)?.title || "Unknown Broadcast") : "Select a broadcast"}
-                                  </SelectValue>
-                                </SelectTrigger>
-                                <SelectContent className="bg-background border-white/10">
-                                  {broadcasts.map(b => (
-                                    <SelectItem key={b.id} value={b.id}>
-                                      <div className="flex items-center space-x-2">
-                                        {b.thumbnail && <Image src={b.thumbnail} alt="" width={32} height={32} className="rounded" />}
-                                        <div>
-                                          <div className="font-medium">{b.title}</div>
-                                          <div className="text-sm text-muted-foreground">
-                                            {new Date(b.scheduledStartTime).toLocaleString()}
+                          <div className="space-y-2 md:col-span-2">
+                            <Label className="text-white/80">YouTube Broadcast (Optional)</Label>
+                            {!youtubeAuthenticated ? (
+                              <Button onClick={handleYouTubeAuth} variant="outline" className="w-full">
+                                Connect YouTube Account
+                              </Button>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                 <Select value={broadcastId || undefined} onValueChange={(val) => {
+                                   if (val === "__CREATE_NEW__") {
+                                     openCreateModal();
+                                     return;
+                                   }
+                                   setBroadcastId(val || "");
+                                 }}>
+                                  <SelectTrigger className="bg-black/50 border-white/10 text-white h-auto min-h-[72px] py-3">
+                                    <SelectValue placeholder="Choose YouTube Broadcast">
+                                      {broadcastId ? (
+                                        <div className="flex items-center gap-3 text-left w-full">
+                                          {broadcasts.find(b => b.id === broadcastId)?.thumbnail && (
+                                            <Image src={broadcasts.find(b => b.id === broadcastId)!.thumbnail} alt="" width={64} height={48} className="w-16 h-12 object-cover rounded flex-shrink-0" />
+                                          )}
+                                          <div className="min-w-0 flex-1">
+                                            <div className="font-medium text-white text-sm leading-tight line-clamp-2">
+                                              {broadcasts.find(b => b.id === broadcastId)?.title}
+                                            </div>
+                                            <div className="text-xs text-muted-foreground mt-1">
+                                              {broadcasts.find(b => b.id === broadcastId)?.scheduledStartTime ? fmtDate(broadcasts.find(b => b.id === broadcastId)!.scheduledStartTime) : ""}
+                                            </div>
                                           </div>
                                         </div>
-                                      </div>
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <Button onClick={handleYouTubeDisconnect} variant="outline" size="sm" className="p-2" title="Disconnect YouTube Account">
-                                <LogOut className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          )}
-                        </div>
+                                      ) : "Choose YouTube Broadcast"}
+                                    </SelectValue>
+                                  </SelectTrigger>
+                                   <SelectContent className="bg-background border-white/10 max-h-[400px]">
+                                     <SelectItem value="__CREATE_NEW__" className="py-3 px-3 cursor-pointer text-primary font-medium">
+                                       + Create new YouTube stream
+                                     </SelectItem>
+                                     {broadcasts.length === 0 && (
+                                       <div className="px-3 py-4 text-sm text-muted-foreground">No broadcasts found.</div>
+                                     )}
+                                     {broadcasts.map((b: any) => (
+                                      <SelectItem key={b.id} value={b.id} className="py-4 px-3 cursor-pointer">
+                                        <div className="flex items-center gap-4 w-full">
+                                          {b.thumbnail ? (
+                                            <Image src={b.thumbnail} alt="" width={80} height={56} className="w-20 h-14 object-cover rounded flex-shrink-0" />
+                                          ) : (
+                                            <div className="w-20 h-14 bg-white/10 rounded flex items-center justify-center text-xs text-muted-foreground flex-shrink-0">No thumb</div>
+                                          )}
+                                          <div className="min-w-0 flex-1">
+                                            <div className="font-medium text-white text-sm leading-tight line-clamp-3 pr-2">{b.title}</div>
+                                            <div className="text-xs text-muted-foreground mt-1.5">
+                                              {b.scheduledStartTime ? fmtDate(b.scheduledStartTime) : ""}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {broadcastId && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setBroadcastId("")}
+                                    title="Clear selection"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                )}
+                                <Button onClick={openCreateModal} variant="outline" size="sm" className="p-2" title="Create new YouTube stream">
+                                  <Plus className="h-4 w-4" />
+                                </Button>
+                                <Button onClick={handleYouTubeDisconnect} variant="outline" size="sm" className="p-2" title="Disconnect YouTube Account">
+                                  <LogOut className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
                         <div className="md:col-span-2 pt-2">
                           <Button type="submit" disabled={scheduling} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
                             {scheduling ? "Scheduling..." : "Schedule Stream"}
@@ -735,11 +1153,13 @@ export default function Dashboard() {
                         </div>
                       </form>
                     </CardContent>
-                  </Card>
+                   </Card>
 
-                  <Card className="glass border-white/5">
-                    <CardHeader>
-                      <CardTitle className="text-white">Scheduled Streams</CardTitle>
+
+
+                   <Card className="glass border-white/5">
+                     <CardHeader>
+                       <CardTitle className="text-white">Scheduled Streams</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <div className="rounded-xl border border-white/10 overflow-hidden bg-black/20">
@@ -749,7 +1169,7 @@ export default function Dashboard() {
                               <TableHead className="text-white/70">Video</TableHead>
                               <TableHead className="text-white/70">Scheduled For</TableHead>
                               <TableHead className="text-white/70">Status</TableHead>
-                              <TableHead className="text-white/70">Created At</TableHead>
+                               <TableHead className="text-white/70">Broadcast Title</TableHead>
                               <TableHead className="text-right text-white/70">Actions</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -762,7 +1182,7 @@ export default function Dashboard() {
                               streams.map(s => (
                                 <TableRow key={s.id} className="border-white/10 hover:bg-white/5">
                                   <TableCell className="font-medium text-white">{s.video_name}</TableCell>
-                                  <TableCell className="text-white/80">{s.scheduled_for.replace('T', ' ')}</TableCell>
+                                   <TableCell className="text-white/80">{fmtDate(s.scheduled_for)}</TableCell>
                                   <TableCell>
                                     <span className={`px-2.5 py-1 rounded-md text-xs font-medium border
                                       ${s.status === 'pending' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' : ''}
@@ -773,7 +1193,7 @@ export default function Dashboard() {
                                       {s.status.toUpperCase()}
                                     </span>
                                   </TableCell>
-                                  <TableCell className="text-white/60 text-sm">{new Date(s.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
+                                   <TableCell className="text-white/60 text-sm">{s.broadcast_title || s.video_name}</TableCell>
                                   <TableCell className="text-right">
                                     {s.status === 'streaming' ? (
                                       <Button variant="ghost" size="sm" onClick={() => handleAbortStream(s.id)} className="text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10">Abort</Button>
@@ -787,148 +1207,61 @@ export default function Dashboard() {
                           </TableBody>
                         </Table>
                       </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
+                     </CardContent>
+                   </Card>
 
-              {activeTab === "videos" && (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-3xl font-bold tracking-tight text-white">Videos</h2>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <Card className="glass border-white/5 max-w-md mx-auto">
-                      <CardHeader>
-                        <CardTitle className="text-white">Upload Video</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <form onSubmit={handleUpload} className="space-y-4">
-                          <div className="space-y-2">
-                            <Label className="text-white/80">Select File</Label>
-                            <div 
-                              className="flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-xl p-8 hover:bg-white/5 hover:border-primary/50 transition-all cursor-pointer bg-black/20" 
-                              onClick={() => document.getElementById('file-upload')?.click()}
-                            >
-                              <Folder className="w-12 h-12 text-white/40 mb-3" />
-                              <span className="text-sm text-white/70 text-center font-medium">
-                                {file ? file.name : "Click to select a video file"}
-                              </span>
-                              <Input 
-                                id="file-upload"
-                                type="file" 
-                                accept="video/*" 
-                                onChange={e => setFile(e.target.files?.[0] || null)} 
-                                className="hidden"
-                                required 
-                              />
-                            </div>
-                          </div>
-                          <Button type="submit" disabled={uploading || !file} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
-                            {uploading ? "Uploading..." : "Upload Video"}
-                          </Button>
-                          {uploading && (
-                            <div className="space-y-2 pt-2">
-                              <div className="flex justify-between text-xs text-white/70 font-medium">
-                                <span>Uploading...</span>
-                                <span>{uploadProgress}%</span>
-                              </div>
-                              <Progress value={uploadProgress} className="h-1.5 bg-white/10" />
-                            </div>
-                          )}
-                        </form>
-                      </CardContent>
-                    </Card>
+                   <Card className="glass border-white/5">
+                     <CardHeader>
+                       <CardTitle className="text-white">Uploaded Videos</CardTitle>
+                     </CardHeader>
+                     <CardContent>
+                       <div className="rounded-xl border border-white/10 overflow-hidden bg-black/20">
+                         <Table>
+                           <TableHeader className="bg-white/5">
+                             <TableRow className="border-white/10 hover:bg-transparent">
+                               <TableHead className="text-white/70">Filename</TableHead>
+                               <TableHead className="text-white/70">Size</TableHead>
+                               <TableHead className="text-white/70">Uploaded At</TableHead>
+                               <TableHead className="text-right text-white/70">Actions</TableHead>
+                             </TableRow>
+                           </TableHeader>
+                           <TableBody>
+                             {videos.length === 0 ? (
+                               <TableRow className="border-white/10 hover:bg-white/5">
+                                 <TableCell colSpan={4} className="text-center text-muted-foreground py-8">No videos uploaded</TableCell>
+                               </TableRow>
+                             ) : (
+                               videos.map(v => (
+                                 <TableRow key={v.id} className="border-white/10 hover:bg-white/5">
+                                   <TableCell className="font-medium text-white">
+                                     {v.original_name}
+                                     {v.encoding_status === 'encoding' && (
+                                       <div className="mt-2">
+                                         <div className="text-xs text-muted-foreground mb-1">Encoding: {v.encoding_progress}%</div>
+                                         <Progress value={v.encoding_progress} className="h-1.5 bg-white/10" />
+                                       </div>
+                                     )}
+                                     {v.encoding_status === 'failed' && (
+                                       <div className="text-xs text-red-400 mt-1">Encoding failed</div>
+                                     )}
+                                   </TableCell>
+                                   <TableCell className="text-white/80">{(v.size / (1024 * 1024)).toFixed(2)} MB</TableCell>
+                                    <TableCell className="text-white/60 text-sm">{fmtDate(v.created_at)}</TableCell>
+                                   <TableCell className="text-right">
+                                     <Button variant="ghost" size="sm" onClick={() => handleDeleteVideo(v.id)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10">Delete</Button>
+                                   </TableCell>
+                                 </TableRow>
+                               ))
+                             )}
+                           </TableBody>
+                         </Table>
+                       </div>
+                     </CardContent>
+                   </Card>
+                 </div>
+               )}
 
-                    <Card className="glass border-white/5 max-w-md mx-auto">
-                      <CardHeader>
-                        <CardTitle className="text-white">Import from URL</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <form onSubmit={handleImport} className="space-y-4">
-                          <div className="space-y-2">
-                            <Label className="text-white/80">Direct Download URL</Label>
-                            <Input 
-                              type="url" 
-                              value={importUrl} 
-                              onChange={e => setImportUrl(e.target.value)} 
-                              placeholder="https://..." 
-                              required 
-                            />
-                            <p className="text-xs text-white/50">
-                              For Google Drive, use a direct download link format.
-                            </p>
-                          </div>
-                          <Button type="submit" disabled={importing || !importUrl} className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl py-6 px-8 font-semibold transition-all">
-                            {importing ? "Importing..." : "Import Video"}
-                          </Button>
-                          {importing && (
-                            <div className="space-y-2 pt-2">
-                              <div className="flex justify-between text-xs text-white/70 font-medium">
-                                <span>Importing...</span>
-                                <span>{importProgress}%</span>
-                              </div>
-                              <Progress value={importProgress} className="h-1.5 bg-white/10" />
-                            </div>
-                          )}
-                        </form>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  <Card className="glass border-white/5">
-                    <CardHeader>
-                      <CardTitle className="text-white">Uploaded Videos</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="rounded-xl border border-white/10 overflow-hidden bg-black/20">
-                        <Table>
-                          <TableHeader className="bg-white/5">
-                            <TableRow className="border-white/10 hover:bg-transparent">
-                              <TableHead className="text-white/70">Filename</TableHead>
-                              <TableHead className="text-white/70">Size</TableHead>
-                              <TableHead className="text-white/70">Uploaded At</TableHead>
-                              <TableHead className="text-right text-white/70">Actions</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {videos.length === 0 ? (
-                              <TableRow className="border-white/10 hover:bg-white/5">
-                                <TableCell colSpan={4} className="text-center text-muted-foreground py-8">No videos uploaded</TableCell>
-                              </TableRow>
-                            ) : (
-                              videos.map(v => (
-                                <TableRow key={v.id} className="border-white/10 hover:bg-white/5">
-                                  <TableCell className="font-medium text-white">
-                                    {v.original_name}
-                                    {v.encoding_status === 'encoding' && (
-                                      <div className="mt-2">
-                                        <div className="text-xs text-muted-foreground mb-1">Encoding: {v.encoding_progress}%</div>
-                                        <Progress value={v.encoding_progress} className="h-1.5 bg-white/10" />
-                                      </div>
-                                    )}
-                                    {v.encoding_status === 'failed' && (
-                                      <div className="text-xs text-red-400 mt-1">Encoding failed</div>
-                                    )}
-                                  </TableCell>
-                                  <TableCell className="text-white/80">{(v.size / (1024 * 1024)).toFixed(2)} MB</TableCell>
-                                  <TableCell className="text-white/60 text-sm">{new Date(v.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
-                                  <TableCell className="text-right">
-                                    <Button variant="ghost" size="sm" onClick={() => handleDeleteVideo(v.id)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10">Delete</Button>
-                                  </TableCell>
-                                </TableRow>
-                              ))
-                            )}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-
-              {activeTab === "keys" && (
+                {activeTab === "keys" && (
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <h2 className="text-3xl font-bold tracking-tight text-white">Stream Keys</h2>
@@ -1002,7 +1335,7 @@ export default function Dashboard() {
                                 <TableRow key={k.id} className="border-white/10 hover:bg-white/5">
                                   <TableCell className="font-medium text-white">{k.name}</TableCell>
                                   <TableCell className="text-white/80 font-mono text-sm">{k.rtmp_url}</TableCell>
-                                  <TableCell className="text-white/60 text-sm">{new Date(k.created_at + 'Z').toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}</TableCell>
+                                    <TableCell className="text-white/60 text-sm">{fmtDate(k.created_at)}</TableCell>
                                   <TableCell className="text-right">
                                     <Button variant="ghost" size="sm" onClick={() => handleDeleteKey(k.id)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10">Delete</Button>
                                   </TableCell>
@@ -1020,6 +1353,166 @@ export default function Dashboard() {
           </AnimatePresence>
         </div>
       </main>
+
+      {/* Create YouTube Stream Modal */}
+      <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
+        <DialogContent className="bg-background/95 backdrop-blur-sm border-white/10 w-[min(96vw,1260px)] max-w-none max-h-[90vh] flex flex-col overflow-hidden">
+          <DialogHeader>
+            <DialogTitle className="text-white">Create New YouTube Stream</DialogTitle>
+            <DialogDescription className="text-white/60">
+              Create a new live broadcast and stream directly on YouTube
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4 overflow-y-auto flex-1 min-h-0 pr-1">
+            <div className="space-y-2">
+              <Label className="text-white/80">Copy details from recent broadcast (optional)</Label>
+              <div className="flex gap-2">
+                <Select value={selectedRecentForCopy || undefined} onValueChange={(val) => { if (val) handleSelectRecent(val); }}>
+                  <SelectTrigger className="bg-black/50 border-white/10 text-white">
+                    <SelectValue placeholder="Select recent broadcast" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-background border-white/10 max-h-[300px]">
+                    {modalRecentBroadcasts.length === 0 && (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">No recent broadcasts</div>
+                    )}
+                    {modalRecentBroadcasts.map((b: any) => (
+                       <SelectItem key={b.id} value={b.id} className="py-2">
+                         <div>
+                           {b._statusTag} • {b.title} {b.scheduledStartTime ? `(${fmtDate(b.scheduledStartTime)})` : ''}
+
+                         </div>
+                       </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedRecentForCopy && (
+                  <Button type="button" variant="ghost" size="sm" onClick={clearRecentSelection}>Clear</Button>
+                )}
+              </div>
+              <p className="text-xs text-white/40">Selecting overwrites fields below. Scheduled time defaults to ~30 min from now.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-white/80">Title *</Label>
+              <Input
+                value={createTitle}
+                onChange={e => setCreateTitle(e.target.value)}
+                placeholder="My Live Stream"
+                maxLength={100}
+                required
+              />
+              <div className="text-xs text-white/50 text-right">{createTitle.length} / 100</div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-white/80">Description</Label>
+              <textarea
+                value={createDescription}
+                onChange={e => setCreateDescription(e.target.value)}
+                placeholder="Optional description"
+                rows={4}
+                className="w-full min-h-[96px] resize-y overflow-auto rounded-md border border-white/10 bg-black/50 px-3 py-2 text-sm text-white placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-white/80">Scheduled Start Time (IST) *</Label>
+              <Input
+                type="datetime-local"
+                value={createScheduledTime}
+                onChange={e => setCreateScheduledTime(e.target.value)}
+                required
+                style={{ colorScheme: 'dark' }}
+              />
+              <p className="text-xs text-white/40">Times are Asia/Kolkata (IST). YouTube receives UTC (RFC 3339).</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-white/80">Thumbnail</Label>
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={e => {
+                  const f = e.target.files?.[0];
+                  if (f) {
+                    const reader = new FileReader();
+                     reader.onload = () => {
+                       const b64 = reader.result as string;
+                       setCreateThumbnail(b64);
+                       setCreateThumbnailPreview(b64);
+                     };
+                    reader.readAsDataURL(f);
+                  }
+                }}
+              />
+              {createThumbnailPreview && (
+                <div className="flex items-center gap-2">
+                  <img src={createThumbnailPreview} alt="thumb preview" className="w-24 h-14 object-cover rounded border border-white/20" />
+                  <Button type="button" variant="ghost" size="sm" onClick={() => { setCreateThumbnail(null); setCreateThumbnailPreview(""); }}>Clear</Button>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-white/80">Privacy</Label>
+              <Select value={createPrivacy} onValueChange={(v) => setCreatePrivacy(v as any)}>
+                <SelectTrigger className="bg-black/50 border-white/10 text-white">
+                  <SelectValue placeholder="Select privacy">
+                    {createPrivacy ? createPrivacy.charAt(0).toUpperCase() + createPrivacy.slice(1) : "Select privacy"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="bg-background border-white/10">
+                  <SelectItem value="private">Private</SelectItem>
+                  <SelectItem value="unlisted">Unlisted</SelectItem>
+                  <SelectItem value="public">Public</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-3 pt-2">
+              <Label className="text-white/80 text-sm">Stream Settings</Label>
+              <div className="flex flex-col gap-2 text-sm">
+                <label className="flex items-center gap-2 text-white/80">
+                  <input type="checkbox" checked={createAutoStart} onChange={e=>setCreateAutoStart(e.target.checked)} className="accent-primary" /> Auto start
+                </label>
+                <label className="flex items-center gap-2 text-white/80">
+                  <input type="checkbox" checked={createAutoStop} onChange={e=>setCreateAutoStop(e.target.checked)} className="accent-primary" /> Auto stop
+                </label>
+                <label className="flex items-center gap-2 text-white/80">
+                  <input type="checkbox" checked={createDvr} onChange={e=>setCreateDvr(e.target.checked)} className="accent-primary" /> DVR
+                </label>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-white/80 text-xs">Latency</Label>
+                <Select value={createLatency} onValueChange={(v)=>setCreateLatency(v as any)}>
+                  <SelectTrigger className="bg-black/50 border-white/10 text-white h-8">
+                    <SelectValue placeholder="Select Latency">
+                      {createLatency ? createLatency.charAt(0).toUpperCase() + createLatency.slice(1) : "Select Latency"}
+                  </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="bg-background border-white/10">
+                    <SelectItem value="normal">Normal</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="ultraLow">Ultra low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="border-t border-white/10">
+            <Button variant="ghost" size="sm" onClick={() => setShowCreateModal(false)} className="text-white/70 hover:text-white">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateStream}
+              disabled={creatingStream}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              {creatingStream ? "Creating..." : "Create Stream"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
