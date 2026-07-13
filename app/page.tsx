@@ -1422,7 +1422,9 @@ export default function Dashboard() {
               <Label className="text-white/80">Privacy</Label>
               <Select value={createPrivacy} onValueChange={(v) => setCreatePrivacy(v as any)}>
                 <SelectTrigger className="bg-black/50 border-white/10 text-white">
-                  <SelectValue />
+                  <SelectValue placeholder="Select privacy">
+                    {createPrivacy ? createPrivacy.charAt(0).toUpperCase() + createPrivacy.slice(1) : "Select privacy"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent className="bg-background border-white/10">
                   <SelectItem value="private">Private</SelectItem>
@@ -1449,7 +1451,8 @@ export default function Dashboard() {
                 <Label className="text-white/80 text-xs">Latency</Label>
                 <Select value={createLatency} onValueChange={(v)=>setCreateLatency(v as any)}>
                   <SelectTrigger className="bg-black/50 border-white/10 text-white h-8">
-                    <SelectValue />
+                    <SelectValue  {createLatency ? createLatency.charAt(0).toUpperCase() + createLatency.slice(1) : "Select Latency"}
+                  </SelectValue>
                   </SelectTrigger>
                   <SelectContent className="bg-background border-white/10">
                     <SelectItem value="normal">Normal</SelectItem>
