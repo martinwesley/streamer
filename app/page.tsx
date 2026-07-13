@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const fmtDate = (d: string | Date) => new Intl.DateTimeFormat('en-GB', {
   day: '2-digit', month: 'short', year: 'numeric',
@@ -81,6 +81,23 @@ export default function Dashboard() {
   const [newKeyStream, setNewKeyStream] = useState("");
   const [savingKey, setSavingKey] = useState(false);
 
+  const streamsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = () => {
+    if (streamsIntervalRef.current) {
+      clearInterval(streamsIntervalRef.current);
+      streamsIntervalRef.current = null;
+    }
+  };
+
+  const startPolling = () => {
+    stopPolling();
+    streamsIntervalRef.current = setInterval(() => {
+      fetchStreams();
+      fetchVideos();
+    }, 2000);
+  };
+
   useEffect(() => {
     fetchUser();
     fetchStats();
@@ -92,14 +109,9 @@ export default function Dashboard() {
       // Clean up URL
       window.history.replaceState({}, document.title, window.location.pathname);
     }
-    
-    const streamsInterval = setInterval(() => {
-      fetchStreams();
-      fetchVideos();
-    }, 2000);
 
     return () => {
-      clearInterval(streamsInterval);
+      stopPolling();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -245,6 +257,14 @@ export default function Dashboard() {
 
     setCreatingStream(true);
     try {
+      const selectedRecent = selectedRecentForCopy
+        ? modalRecentBroadcasts.find((b: any) => b.id === selectedRecentForCopy)
+        : null;
+      const reuseStreamId =
+        selectedRecent?.boundStreamId ||
+        selectedRecent?.contentDetails?.boundStreamId ||
+        undefined;
+
       const res = await fetch("/api/youtube/create-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -258,13 +278,18 @@ export default function Dashboard() {
           enableAutoStop: createAutoStop,
           enableDvr: createDvr,
           latencyPreference: createLatency,
+          reuseStreamId,
         }),
       });
 
       const data = await res.json();
 
       if (res.ok && data.success) {
-        toast.success("YouTube stream created successfully");
+        toast.success(
+          data.reusedStream
+            ? "YouTube stream created with copied stream key"
+            : "YouTube stream created with default stream key"
+        );
 
         // Auto-populate schedule form
         setBroadcastId(data.broadcastId);
@@ -367,6 +392,7 @@ export default function Dashboard() {
     if (!newKeyName || !newKeyRtmp || !newKeyStream) return toast.error("Please fill all fields");
     
     setSavingKey(true);
+    startPolling();
     try {
       const res = await fetch("/api/saved-keys", {
         method: "POST",
@@ -378,6 +404,8 @@ export default function Dashboard() {
         setNewKeyName("");
         setNewKeyStream("");
         fetchSavedKeys();
+        fetchStreams();
+        fetchVideos();
       } else {
         toast.error("Failed to save key");
       }
@@ -385,6 +413,7 @@ export default function Dashboard() {
       toast.error("Error saving key");
     } finally {
       setSavingKey(false);
+      stopPolling();
     }
   };
 
@@ -409,6 +438,7 @@ export default function Dashboard() {
     
     setUploading(true);
     setUploadProgress(0);
+    startPolling();
     const formData = new FormData();
     formData.append("video", fileToUpload);
     
@@ -425,6 +455,7 @@ export default function Dashboard() {
         toast.success("Video uploaded successfully");
         setFile(null);
         fetchVideos();
+        fetchStreams();
       } else {
         toast.error("Upload failed");
       }
@@ -433,6 +464,7 @@ export default function Dashboard() {
     } finally {
       setUploading(false);
       setUploadProgress(0);
+      stopPolling();
     }
   };
 
@@ -495,6 +527,7 @@ export default function Dashboard() {
     }
     
     setScheduling(true);
+    startPolling();
     try {
       const res = await fetch("/api/streams", {
         method: "POST",
@@ -516,6 +549,7 @@ export default function Dashboard() {
         setSelectedSavedKey("");
         setBroadcastId("");
         fetchStreams();
+        fetchVideos();
       } else {
         toast.error("Scheduling failed");
       }
@@ -523,6 +557,7 @@ export default function Dashboard() {
       toast.error("An error occurred while scheduling");
     } finally {
       setScheduling(false);
+      stopPolling();
     }
   };
 

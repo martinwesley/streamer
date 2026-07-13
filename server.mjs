@@ -171,7 +171,59 @@ async function uploadYouTubeThumbnail(broadcastId, thumbnailBase64) {
   }
 }
 
-async function createYouTubeStream(title, description, scheduledStartTime, privacyStatus = 'private', thumbnailBase64 = null, settings = {}) {
+function mapLiveStreamItem(streamData) {
+  return {
+    streamId: streamData.id,
+    streamKey: streamData.cdn?.ingestionInfo?.streamName,
+    rtmpUrl: streamData.cdn?.ingestionInfo?.ingestionAddress || 'rtmp://a.rtmp.youtube.com/live2',
+    title: streamData.snippet?.title || '',
+    isReusable: streamData.contentDetails?.isReusable !== false,
+  };
+}
+
+async function fetchLiveStreamDetails(accessToken, streamId) {
+  const response = await fetch(
+    `https://www.googleapis.com/youtube/v3/liveStreams?part=snippet,cdn,contentDetails&id=${encodeURIComponent(streamId)}`,
+    { headers: { 'Authorization': `Bearer ${accessToken}` } }
+  );
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Failed to fetch stream details: ${err}`);
+  }
+  const data = await response.json();
+  const streamData = data.items?.[0];
+  if (!streamData) {
+    throw new Error('Stream not found');
+  }
+  return mapLiveStreamItem(streamData);
+}
+
+// YouTube channel default stream key (e.g. "Default stream key"), not stored in app
+async function fetchDefaultYouTubeStream(accessToken) {
+  const response = await fetch(
+    'https://www.googleapis.com/youtube/v3/liveStreams?part=snippet,cdn,contentDetails&mine=true&maxResults=50',
+    { headers: { 'Authorization': `Bearer ${accessToken}` } }
+  );
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Failed to fetch YouTube stream keys: ${err}`);
+  }
+  const data = await response.json();
+  const items = (data.items || []).map(mapLiveStreamItem).filter(s => s.streamId && s.streamKey);
+  if (items.length === 0) {
+    throw new Error('No YouTube stream keys found on this channel');
+  }
+
+  const byDefaultName = items.find(s => /default\s*stream\s*key/i.test(s.title));
+  if (byDefaultName) return byDefaultName;
+
+  const reusable = items.find(s => s.isReusable);
+  if (reusable) return reusable;
+
+  return items[0];
+}
+
+async function createYouTubeStream(title, description, scheduledStartTime, privacyStatus = 'private', thumbnailBase64 = null, settings = {}, reuseStreamId = null) {
   try {
     const accessToken = await getYouTubeAccessToken();
     if (!accessToken) {
@@ -187,6 +239,25 @@ async function createYouTubeStream(title, description, scheduledStartTime, priva
       enableDvr = false,
       latencyPreference = 'normal',
     } = settings;
+
+    // Resolve stream key first: copied broadcast stream, else channel default from YouTube
+    let streamDetails;
+    let reusedStream = false;
+
+    if (reuseStreamId) {
+      try {
+        streamDetails = await fetchLiveStreamDetails(accessToken, reuseStreamId);
+        reusedStream = true;
+      } catch (e) {
+        console.warn('Could not reuse copied stream, falling back to YouTube default stream key:', e.message);
+      }
+    }
+
+    if (!streamDetails) {
+      streamDetails = await fetchDefaultYouTubeStream(accessToken);
+    }
+
+    const { streamId, streamKey, rtmpUrl } = streamDetails;
 
     // 1. Create liveBroadcast (with contentDetails for auto-start/stop, dvr, latency)
     const broadcastResponse = await fetch('https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status,contentDetails', {
@@ -222,39 +293,14 @@ async function createYouTubeStream(title, description, scheduledStartTime, priva
     const broadcastData = await broadcastResponse.json();
     const broadcastId = broadcastData.id;
 
-    // 2. Create liveStream
-    const streamResponse = await fetch('https://www.googleapis.com/youtube/v3/liveStreams?part=snippet,cdn', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        snippet: {
-          title: title || 'New Live Stream',
-        },
-        cdn: {
-          ingestionType: 'rtmp',
-          frameRate: '30fps',
-          resolution: '1080p',
-        },
-      }),
-    });
-
-    if (!streamResponse.ok) {
-      const err = await streamResponse.text();
+    const cleanupBroadcast = async () => {
       await fetch(`https://www.googleapis.com/youtube/v3/liveBroadcasts?id=${broadcastId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${accessToken}` },
       }).catch(() => {});
-      throw new Error(`Failed to create stream: ${err}`);
-    }
+    };
 
-    const streamData = await streamResponse.json();
-    const streamId = streamData.id;
-    const streamKey = streamData.cdn.ingestionInfo.streamName;
-
-    // 3. Bind broadcast and stream
+    // 2. Bind broadcast to existing stream (copied or default) — never create a new stream key
     const bindResponse = await fetch(`https://www.googleapis.com/youtube/v3/liveBroadcasts/bind?id=${broadcastId}&streamId=${streamId}&part=id,snippet,status`, {
       method: 'POST',
       headers: {
@@ -263,18 +309,49 @@ async function createYouTubeStream(title, description, scheduledStartTime, priva
       },
     });
 
+    let finalStreamId = streamId;
+    let finalStreamKey = streamKey;
+    let finalRtmpUrl = rtmpUrl;
+    let finalReusedStream = reusedStream;
+
     if (!bindResponse.ok) {
       const err = await bindResponse.text();
-      await fetch(`https://www.googleapis.com/youtube/v3/liveBroadcasts?id=${broadcastId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${accessToken}` },
-      }).catch(() => {});
-      throw new Error(`Failed to bind stream: ${err}`);
+      // If copied stream failed to bind, retry with channel default stream key
+      if (reusedStream) {
+        console.warn('Bind to copied stream failed, retrying with YouTube default stream key:', err);
+        try {
+          const defaultStream = await fetchDefaultYouTubeStream(accessToken);
+          if (defaultStream.streamId === streamId) {
+            await cleanupBroadcast();
+            throw new Error(`Failed to bind stream: ${err}`);
+          }
+          const retryBind = await fetch(`https://www.googleapis.com/youtube/v3/liveBroadcasts/bind?id=${broadcastId}&streamId=${defaultStream.streamId}&part=id,snippet,status`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          });
+          if (!retryBind.ok) {
+            const retryErr = await retryBind.text();
+            await cleanupBroadcast();
+            throw new Error(`Failed to bind stream: ${retryErr}`);
+          }
+          finalStreamId = defaultStream.streamId;
+          finalStreamKey = defaultStream.streamKey;
+          finalRtmpUrl = defaultStream.rtmpUrl;
+          finalReusedStream = false;
+        } catch (fallbackErr) {
+          await cleanupBroadcast();
+          throw fallbackErr;
+        }
+      } else {
+        await cleanupBroadcast();
+        throw new Error(`Failed to bind stream: ${err}`);
+      }
     }
 
-    const rtmpUrl = 'rtmp://a.rtmp.youtube.com/live2';
-
-    // 4. Thumbnail (optional, non-fatal)
+    // 3. Thumbnail (optional, non-fatal)
     let thumbnailWarning = null;
     if (thumbnailBase64) {
       try {
@@ -286,11 +363,12 @@ async function createYouTubeStream(title, description, scheduledStartTime, priva
 
     return {
       broadcastId,
-      rtmpUrl,
-      streamKey,
+      rtmpUrl: finalRtmpUrl,
+      streamKey: finalStreamKey,
       scheduledFor: scheduledTime,
       title: title || 'New Live Stream',
       thumbnailWarning,
+      reusedStream: finalReusedStream,
     };
   } catch (error) {
     console.error('YouTube stream creation error:', error);
@@ -703,11 +781,13 @@ app.prepare().then(async () => {
         scheduledStartTime: item.snippet.scheduledStartTime,
         status: item.status.lifeCycleStatus,
         privacyStatus: item.status?.privacyStatus,
+        boundStreamId: item.contentDetails?.boundStreamId || null,
         contentDetails: {
           enableAutoStart: item.contentDetails?.enableAutoStart,
           enableAutoStop: item.contentDetails?.enableAutoStop,
           enableDvr: item.contentDetails?.enableDvr,
           latencyPreference: item.contentDetails?.latencyPreference,
+          boundStreamId: item.contentDetails?.boundStreamId || null,
         },
       }));
 
@@ -731,7 +811,7 @@ app.prepare().then(async () => {
   // Create new YouTube live broadcast + stream + bind (combined to minimize quota usage)
   server.post('/api/youtube/create-stream', authenticateToken, async (req, res) => {
     try {
-      const { title, description, scheduledStartTime, privacyStatus, thumbnail, enableAutoStart, enableAutoStop, enableDvr, latencyPreference } = req.body;
+      const { title, description, scheduledStartTime, privacyStatus, thumbnail, enableAutoStart, enableAutoStop, enableDvr, latencyPreference, reuseStreamId } = req.body;
 
       if (!title) {
         return res.status(400).json({ error: 'Title is required' });
@@ -744,7 +824,15 @@ app.prepare().then(async () => {
         latencyPreference: latencyPreference || 'normal',
       };
 
-      const result = await createYouTubeStream(title, description, scheduledStartTime, privacyStatus, thumbnail || null, settings);
+      const result = await createYouTubeStream(
+        title,
+        description,
+        scheduledStartTime,
+        privacyStatus,
+        thumbnail || null,
+        settings,
+        reuseStreamId || null
+      );
 
       res.json({
         success: true,
@@ -754,6 +842,7 @@ app.prepare().then(async () => {
         scheduledFor: result.scheduledFor,
         title: result.title,
         thumbnailWarning: result.thumbnailWarning || undefined,
+        reusedStream: result.reusedStream || false,
       });
     } catch (error) {
       console.error('Create stream error:', error);
